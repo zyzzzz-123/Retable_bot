@@ -30,10 +30,12 @@ import time
 import torch
 
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.policies.utils import build_inference_frame, make_robot_action
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
+from lerobot.utils.constants import ACTION, OBS_STR
 from lerobot.utils.control_utils import go_to_rest_position, init_keyboard_listener
 from lerobot.utils.robot_utils import precise_sleep
 
@@ -110,6 +112,12 @@ def main():
     robot.connect()
     logger.info("Robot connected.")
 
+    # ── Build dataset features from robot hardware (needed by build_inference_frame / make_robot_action) ──
+    ds_features = {}
+    ds_features.update(hw_to_dataset_features(robot.observation_features, OBS_STR, use_video=False))
+    ds_features.update(hw_to_dataset_features(robot.action_features, ACTION, use_video=False))
+    logger.info(f"Dataset features keys: {list(ds_features.keys())}")
+
     # ── Initialize keyboard listener ──
     listener, events = init_keyboard_listener()
 
@@ -178,13 +186,13 @@ def main():
                 # ── Policy inference ──
                 obs = robot.get_observation()
                 obs_frame = build_inference_frame(
-                    observation=obs, ds_features=model.config.input_features, device=device
+                    observation=obs, ds_features=ds_features, device=device
                 )
 
                 obs_processed = preprocess(obs_frame)
                 action = model.select_action(obs_processed)
                 action = postprocess(action)
-                action_dict = make_robot_action(action, model.config.output_features)
+                action_dict = make_robot_action(action, ds_features)
 
                 robot.send_action(action_dict)
 
