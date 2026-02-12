@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv
+venv/
+ENV/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+backend/backend.log
+
+# Local development
+.env.local
+.env.*.local
+
+# Python
+*.py[cod]
+*$py.class
+.Python
+pip-log.txt
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+
+# Trained models (user should provide their own)
+outputs/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Temporary files
+tmp/
+temp/
+*.tmp

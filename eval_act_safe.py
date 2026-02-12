@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """ACT policy safe evaluation script with Emergency Stop and Go-to-Home.
 
-Safety keyboard shortcuts (terminal must have focus):
-    Spacebar  → Emergency Stop (hold current position, pause inference)
-    Enter     → Resume inference (from e-stop or after go-to-home)
-    r         → Go to rest/home position (smooth 2s interpolation), then pause
-    →(right)  → Skip current episode
-    Esc       → Quit all episodes
+Control via keyboard (terminal must have focus) OR control file (for UI backend):
+    Spacebar / ESTOP   → Emergency Stop (hold current position, pause inference)
+    Enter    / RESUME  → Resume inference (from e-stop or after go-to-home)
+    r        / HOME    → Go to rest/home position (smooth 2s interpolation), then pause
+    →(right)           → Skip current episode
+    Esc      / QUIT    → Quit all episodes
+
+Pre-warm mode (--wait-for-start):
+    Loads model + connects robot on startup, then waits for START command.
+    User presses Start in UI → inference begins immediately (zero delay).
 
 Usage:
     python eval_act_safe.py \\
@@ -19,12 +23,14 @@ Usage:
         --num-episodes 10 \\
         --device cuda
 
-    # Or simply run with defaults:
-    python eval_act_safe.py
+    # Pre-warm mode (for UI):
+    python eval_act_safe.py --wait-for-start --control-file /tmp/lerobot_cmd ...
 """
 
 import argparse
 import logging
+import os
+import sys
 import time
 
 import torch
@@ -86,7 +92,179 @@ def parse_args():
     # Safety
     parser.add_argument("--rest-duration", type=float, default=2.0, help="Go-to-home duration in seconds")
 
+    # External control (for UI backend)
+    parser.add_argument(
+        "--control-file", type=str, default="",
+        help="Path to a control file for receiving commands from an external UI (e.g. /tmp/lerobot_cmd)",
+    )
+
+    # Pre-warm mode
+    parser.add_argument(
+        "--wait-for-start", action="store_true",
+        help="Pre-load model + connect robot, then wait for START command before inference",
+    )
+
     return parser.parse_args()
+
+
+def read_control_command(control_file: str) -> str:
+    """Read and consume a command from the control file. Returns empty string if none."""
+    if not control_file or not os.path.exists(control_file):
+        return ""
+    try:
+        with open(control_file, "r") as f:
+            cmd = f.read().strip().upper()
+        os.remove(control_file)
+        return cmd
+    except Exception:
+        return ""
+
+
+def check_control_file(control_file: str, events: dict) -> None:
+    """Read a command from the control file and map it to events."""
+    cmd = read_control_command(control_file)
+    if not cmd:
+        return
+    if cmd == "ESTOP":
+        events["emergency_stop"] = True
+        events["exit_early"] = True
+    elif cmd == "RESUME":
+        events["emergency_stop"] = False
+    elif cmd == "HOME":
+        events["go_to_rest"] = True
+        events["exit_early"] = True
+    elif cmd == "QUIT":
+        events["stop_recording"] = True
+        events["exit_early"] = True
+    elif cmd == "START":
+        # Used in wait-for-start mode; also works as resume
+        events["emergency_stop"] = False
+
+
+def wait_for_command(control_file: str, events: dict, target_cmd: str = "START") -> str:
+    """Block until a specific command (or QUIT) arrives via control file or keyboard.
+
+    Returns the command received ("START" or "QUIT").
+    """
+    while True:
+        # Check control file
+        cmd = read_control_command(control_file)
+        if cmd == target_cmd:
+            return cmd
+        if cmd == "QUIT":
+            return "QUIT"
+
+        # Check keyboard events (Esc → quit)
+        if events.get("stop_recording"):
+            return "QUIT"
+
+        time.sleep(0.1)
+
+
+def run_episodes(args, model, preprocess, postprocess, robot, ds_features, device, events, max_steps):
+    """Run the inference episode loop. Returns True if should continue, False to quit."""
+    for ep in range(args.num_episodes):
+        print(f"\n{'─'*50}", flush=True)
+        print(f"  Episode {ep + 1}/{args.num_episodes}", flush=True)
+        print(f"{'─'*50}", flush=True)
+
+        model.reset()
+        events["exit_early"] = False
+        events["emergency_stop"] = False
+        events["go_to_rest"] = False
+        events["stop_recording"] = False
+
+        for step in range(max_steps):
+            start_t = time.perf_counter()
+
+            # ── Check external control file for commands ──
+            check_control_file(args.control_file, events)
+
+            # ── Emergency Stop: hold current position, pause inference ──
+            if events.get("emergency_stop"):
+                hold_pos = robot.bus.sync_read("Present_Position")
+                robot.bus.sync_write("Goal_Position", hold_pos)
+                model.reset()
+                print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume, [r] to go home...", flush=True)
+                while events.get("emergency_stop"):
+                    check_control_file(args.control_file, events)
+                    if events.get("go_to_rest"):
+                        events["go_to_rest"] = False
+                        events["emergency_stop"] = False
+                        print("🏠  Moving to rest position...", flush=True)
+                        go_to_rest_position(
+                            robot, rest_position=robot.rest_position,
+                            fps=args.fps, duration_s=args.rest_duration, events=events,
+                        )
+                        model.reset()
+                        print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.", flush=True)
+                        events["emergency_stop"] = True
+                        home_pos = robot.bus.sync_read("Present_Position")
+                        while events.get("emergency_stop"):
+                            check_control_file(args.control_file, events)
+                            robot.bus.sync_write("Goal_Position", home_pos)
+                            time.sleep(0.05)
+                            if events.get("stop_recording"):
+                                break
+                        break
+                    robot.bus.sync_write("Goal_Position", hold_pos)
+                    time.sleep(0.05)
+                print("▶️  Resumed. Continuing inference...", flush=True)
+                continue
+
+            # ── Go to rest / home, then PAUSE ──
+            if events.get("go_to_rest"):
+                events["go_to_rest"] = False
+                events["exit_early"] = False
+                print("🏠  Moving to rest position...", flush=True)
+                go_to_rest_position(
+                    robot, rest_position=robot.rest_position,
+                    fps=args.fps, duration_s=args.rest_duration, events=events,
+                )
+                model.reset()
+                print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.", flush=True)
+                events["emergency_stop"] = True
+                home_pos = robot.bus.sync_read("Present_Position")
+                while events.get("emergency_stop"):
+                    check_control_file(args.control_file, events)
+                    robot.bus.sync_write("Goal_Position", home_pos)
+                    time.sleep(0.05)
+                    if events.get("stop_recording"):
+                        break
+                print("▶️  Resumed from home. Continuing inference...", flush=True)
+                continue
+
+            # ── Quit / Skip ──
+            if events.get("stop_recording"):
+                break
+            if events.get("exit_early"):
+                events["exit_early"] = False
+                print("⏭️  Skipping episode.", flush=True)
+                break
+
+            # ── Policy inference ──
+            obs = robot.get_observation()
+            obs_frame = build_inference_frame(observation=obs, ds_features=ds_features, device=device)
+            obs_processed = preprocess(obs_frame)
+            action = model.select_action(obs_processed)
+            action = postprocess(action)
+            action_dict = make_robot_action(action, ds_features)
+            robot.send_action(action_dict)
+
+            # ── Maintain target FPS ──
+            dt = time.perf_counter() - start_t
+            precise_sleep(max(1.0 / args.fps - dt, 0.0))
+
+            if step % (args.fps * 10) == 0 and step > 0:
+                print(f"    Step {step}/{max_steps} ({step / args.fps:.0f}s)", flush=True)
+
+        if events.get("stop_recording"):
+            print("\n[Esc/Quit] Quit requested. Stopping.", flush=True)
+            return False  # signal to quit
+
+        print(f"  Episode {ep + 1} finished.", flush=True)
+
+    return True  # all episodes done, can continue
 
 
 def main():
@@ -95,15 +273,18 @@ def main():
     device = torch.device(args.device)
     max_steps = int(args.episode_time * args.fps)
 
-    # ── Load model ──
+    # ── Phase 1: Load model ──
+    print("WARMUP_PHASE: loading_model", flush=True)
     logger.info(f"Loading model: {args.model}")
     model = ACTPolicy.from_pretrained(args.model)
     model.eval()
+    print("WARMUP_PHASE: model_loaded", flush=True)
 
-    # ── Create pre/post processors (load from pretrained path) ──
+    # ── Phase 2: Create pre/post processors ──
     preprocess, postprocess = make_pre_post_processors(model.config, pretrained_path=args.model)
 
-    # ── Configure robot ──
+    # ── Phase 3: Connect robot ──
+    print("WARMUP_PHASE: connecting_robot", flush=True)
     camera_config = parse_cameras(args.cameras, args.cam_width, args.cam_height, args.fps)
     robot_cfg = SO101FollowerConfig(port=args.robot_port, id=args.robot_id, cameras=camera_config)
     robot = SO101Follower(robot_cfg)
@@ -111,8 +292,9 @@ def main():
     logger.info(f"Connecting to robot '{args.robot_id}' on {args.robot_port}...")
     robot.connect()
     logger.info("Robot connected.")
+    print("WARMUP_PHASE: robot_connected", flush=True)
 
-    # ── Build dataset features from robot hardware (needed by build_inference_frame / make_robot_action) ──
+    # ── Phase 4: Build features ──
     ds_features = {}
     ds_features.update(hw_to_dataset_features(robot.observation_features, OBS_STR, use_video=False))
     ds_features.update(hw_to_dataset_features(robot.action_features, ACTION, use_video=False))
@@ -128,6 +310,7 @@ def main():
     print("  Camera: " + args.cameras)
     print("  FPS   : " + str(args.fps))
     print("  Episodes: " + f"{args.num_episodes} × {args.episode_time}s ({max_steps} steps)")
+    print("  Mode  : " + ("WAIT-FOR-START (pre-warm)" if args.wait_for_start else "IMMEDIATE"))
     print("-" * 60)
     print("  Keyboard shortcuts:")
     print("    [Space]  Emergency Stop (hold position, pause inference)")
@@ -137,125 +320,60 @@ def main():
     print("    [Esc]    Quit")
     print("=" * 60 + "\n")
 
+    # Signal warmup complete
+    print("WARMUP_COMPLETE", flush=True)
+
     try:
-        for ep in range(args.num_episodes):
-            print(f"\n{'─'*50}")
-            print(f"  Episode {ep + 1}/{args.num_episodes}")
-            print(f"{'─'*50}")
+        if args.wait_for_start:
+            # ── Pre-warm mode: wait for START, run, loop ──
+            while True:
+                print("READY_FOR_START", flush=True)
+                logger.info("Waiting for START command...")
 
-            model.reset()
-            events["exit_early"] = False
-
-            for step in range(max_steps):
-                start_t = time.perf_counter()
-
-                # ── Emergency Stop: hold current position, pause inference ──
-                if events.get("emergency_stop"):
-                    # Read current position and command robot to hold there
-                    hold_pos = robot.bus.sync_read("Present_Position")
-                    robot.bus.sync_write("Goal_Position", hold_pos)
-                    model.reset()
-                    print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume, [r] to go home...")
-                    while events.get("emergency_stop"):
-                        # Check if user wants to go home during e-stop
-                        if events.get("go_to_rest"):
-                            events["go_to_rest"] = False
-                            events["emergency_stop"] = False  # exit e-stop loop
-                            print("🏠  Moving to rest position...")
-                            go_to_rest_position(
-                                robot,
-                                rest_position=robot.rest_position,
-                                fps=args.fps,
-                                duration_s=args.rest_duration,
-                                events=events,
-                            )
-                            model.reset()
-                            # Hold at home and wait for Enter
-                            print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.")
-                            events["emergency_stop"] = True
-                            home_pos = robot.bus.sync_read("Present_Position")
-                            while events.get("emergency_stop"):
-                                robot.bus.sync_write("Goal_Position", home_pos)
-                                time.sleep(0.05)
-                                if events.get("stop_recording"):
-                                    break
-                            break  # exit outer e-stop while
-                        # Keep commanding hold position to resist external forces
-                        robot.bus.sync_write("Goal_Position", hold_pos)
-                        time.sleep(0.05)
-                    print("▶️  Resumed. Continuing inference...")
-                    continue
-
-                # ── Go to rest / home, then PAUSE (wait for Enter) ──
-                if events.get("go_to_rest"):
-                    events["go_to_rest"] = False
-                    events["exit_early"] = False
-                    print("🏠  Moving to rest position...")
-                    go_to_rest_position(
-                        robot,
-                        rest_position=robot.rest_position,
-                        fps=args.fps,
-                        duration_s=args.rest_duration,
-                        events=events,
-                    )
-                    model.reset()
-                    # Hold at home and wait for Enter to resume inference
-                    print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.")
-                    events["emergency_stop"] = True  # reuse e-stop flag to block
-                    home_pos = robot.bus.sync_read("Present_Position")
-                    while events.get("emergency_stop"):
-                        robot.bus.sync_write("Goal_Position", home_pos)
-                        time.sleep(0.05)
-                        if events.get("stop_recording"):
-                            break
-                    print("▶️  Resumed from home. Continuing inference...")
-                    continue
-
-                # ── Quit / Skip ──
-                if events.get("stop_recording"):
-                    break
-                if events.get("exit_early"):
-                    events["exit_early"] = False
-                    print("⏭️  Skipping episode.")
+                cmd = wait_for_command(args.control_file, events, "START")
+                if cmd == "QUIT":
+                    print("Quit received while waiting.", flush=True)
                     break
 
-                # ── Policy inference ──
-                obs = robot.get_observation()
-                obs_frame = build_inference_frame(
-                    observation=obs, ds_features=ds_features, device=device
+                print("INFERENCE_STARTED", flush=True)
+                logger.info("START received — beginning inference!")
+
+                # Reset events for fresh run
+                events["stop_recording"] = False
+                events["exit_early"] = False
+                events["emergency_stop"] = False
+                events["go_to_rest"] = False
+
+                should_continue = run_episodes(
+                    args, model, preprocess, postprocess,
+                    robot, ds_features, device, events, max_steps,
                 )
 
-                obs_processed = preprocess(obs_frame)
-                action = model.select_action(obs_processed)
-                action = postprocess(action)
-                action_dict = make_robot_action(action, ds_features)
+                print("INFERENCE_DONE", flush=True)
 
-                robot.send_action(action_dict)
+                if not should_continue:
+                    # User pressed Quit during episodes — but in wait mode, go back to waiting
+                    # unless stop_recording was from a QUIT command
+                    events["stop_recording"] = False
+                    continue
 
-                # ── Maintain target FPS ──
-                dt = time.perf_counter() - start_t
-                precise_sleep(max(1.0 / args.fps - dt, 0.0))
-
-                if step % (args.fps * 10) == 0 and step > 0:
-                    print(f"    Step {step}/{max_steps} ({step / args.fps:.0f}s)")
-
-            if events.get("stop_recording"):
-                print("\n[Esc] Quit requested. Stopping.")
-                break
-
-            print(f"  Episode {ep + 1} finished.")
+        else:
+            # ── Immediate mode (original behavior) ──
+            run_episodes(
+                args, model, preprocess, postprocess,
+                robot, ds_features, device, events, max_steps,
+            )
 
     except KeyboardInterrupt:
-        print("\n\nCtrl+C detected. Shutting down...")
+        print("\n\nCtrl+C detected. Shutting down...", flush=True)
 
     finally:
-        # ── Cleanup ──
         if robot.is_connected:
-            print("Disconnecting robot...")
+            print("Disconnecting robot...", flush=True)
             robot.disconnect()
         if listener is not None:
             listener.stop()
-        print("Done. ✅")
+        print("Done. ✅", flush=True)
 
 
 if __name__ == "__main__":
