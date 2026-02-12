@@ -45,7 +45,7 @@ def parse_cameras(cameras_str: str, width: int = 640, height: int = 480, fps: in
     """Parse camera string like 'front:/dev/video4,wrist:/dev/video0' into config dict."""
     cameras = {}
     for item in cameras_str.split(","):
-        name, path = item.strip().split(":")
+        name, path = item.strip().split(":", 1)
         cameras[name.strip()] = OpenCVCameraConfig(
             index_or_path=path.strip(), width=width, height=height, fps=fps
         )

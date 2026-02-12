@@ -18,7 +18,7 @@ cd /home/robotlab/lerobot
 MODEL="FrankYuzhe/act_merged_tissue_spoon_0203_0204_2202"
 ROBOT_PORT="/dev/ttyACM0"
 ROBOT_ID="hope"
-CAMERAS="front:/dev/video4,wrist:/dev/video0"
+CAMERAS="front:/dev/video0,wrist:/dev/video4"
 FPS=30
 EPISODE_TIME=200      # 每个episode最长秒数
 NUM_EPISODES=10
