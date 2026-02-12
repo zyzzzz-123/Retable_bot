@@ -2,9 +2,9 @@
 """ACT policy safe evaluation script with Emergency Stop and Go-to-Home.
 
 Safety keyboard shortcuts (terminal must have focus):
-    Spacebar  → Emergency Stop (disables all motor torque instantly)
-    Enter     → Resume from emergency stop
-    r         → Go to rest/home position (smooth 2s interpolation)
+    Spacebar  → Emergency Stop (hold current position, pause inference)
+    Enter     → Resume inference (from e-stop or after go-to-home)
+    r         → Go to rest/home position (smooth 2s interpolation), then pause
     →(right)  → Skip current episode
     Esc       → Quit all episodes
 
@@ -130,9 +130,9 @@ def main():
     print("  Episodes: " + f"{args.num_episodes} × {args.episode_time}s ({max_steps} steps)")
     print("-" * 60)
     print("  Keyboard shortcuts:")
-    print("    [Space]  Emergency Stop (disable torque)")
-    print("    [Enter]  Resume from e-stop")
-    print("    [r]      Go to Home / rest position (2s)")
+    print("    [Space]  Emergency Stop (hold position, pause inference)")
+    print("    [Enter]  Resume inference")
+    print("    [r]      Go to Home / rest position (2s), then pause")
     print("    [→]      Skip current episode")
     print("    [Esc]    Quit")
     print("=" * 60 + "\n")
@@ -149,18 +149,21 @@ def main():
             for step in range(max_steps):
                 start_t = time.perf_counter()
 
-                # ── Emergency Stop ──
+                # ── Emergency Stop: hold current position, pause inference ──
                 if events.get("emergency_stop"):
-                    robot.emergency_stop()
+                    # Read current position and command robot to hold there
+                    hold_pos = robot.bus.sync_read("Present_Position")
+                    robot.bus.sync_write("Goal_Position", hold_pos)
                     model.reset()
-                    print("⚠️  EMERGENCY STOP — all torque disabled. Press [Enter] to resume...")
+                    print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume inference...")
                     while events.get("emergency_stop"):
-                        time.sleep(0.1)
-                    robot.resume()
-                    print("▶️  Resumed. Continuing episode...")
+                        # Keep commanding hold position to resist external forces
+                        robot.bus.sync_write("Goal_Position", hold_pos)
+                        time.sleep(0.05)
+                    print("▶️  Resumed. Continuing inference...")
                     continue
 
-                # ── Go to rest / home ──
+                # ── Go to rest / home, then PAUSE (wait for Enter) ──
                 if events.get("go_to_rest"):
                     events["go_to_rest"] = False
                     events["exit_early"] = False
@@ -172,8 +175,18 @@ def main():
                         duration_s=args.rest_duration,
                         events=events,
                     )
-                    print("🏠  Rest position reached. Episode ended.")
-                    break
+                    model.reset()
+                    # Hold at home and wait for Enter to resume inference
+                    print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.")
+                    events["emergency_stop"] = True  # reuse e-stop flag to block
+                    home_pos = robot.bus.sync_read("Present_Position")
+                    while events.get("emergency_stop"):
+                        robot.bus.sync_write("Goal_Position", home_pos)
+                        time.sleep(0.05)
+                        if events.get("stop_recording"):
+                            break
+                    print("▶️  Resumed from home. Continuing inference...")
+                    continue
 
                 # ── Quit / Skip ──
                 if events.get("stop_recording"):
