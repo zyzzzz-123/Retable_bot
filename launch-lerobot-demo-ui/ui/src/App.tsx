@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type FC } from 'react'
 
 /* ================================================================
    Types
@@ -40,6 +40,93 @@ const FEEDBACK_TAGS = [
   'missed target', 'dropped object', 'wrong position',
   'collision', 'too slow', 'gripper issue',
 ]
+
+/* ================================================================
+   Camera Feed Component
+   ================================================================ */
+
+const CameraFeed: FC<{ name: string; active: boolean }> = ({ name, active }) => {
+  const imgRef = useRef<HTMLImageElement>(null)
+  const [hasFrame, setHasFrame] = useState(false)
+
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+
+    const refresh = () => {
+      if (cancelled || !imgRef.current) return
+      // Create a new Image to preload — avoids flicker
+      const loader = new Image()
+      loader.onload = () => {
+        if (!cancelled && imgRef.current) {
+          imgRef.current.src = loader.src
+          setHasFrame(true)
+        }
+      }
+      loader.onerror = () => {
+        if (!cancelled) setHasFrame(false)
+      }
+      loader.src = `/api/frame/${name}?t=${Date.now()}`
+    }
+
+    refresh()
+    const id = setInterval(refresh, 200) // ~5 fps
+    return () => { cancelled = true; clearInterval(id) }
+  }, [name, active])
+
+  return (
+    <div className="relative rounded-xl overflow-hidden bg-gray-800/70 border border-gray-700/50">
+      <img
+        ref={imgRef}
+        alt={name}
+        className={`w-full h-auto block transition-opacity duration-300 ${hasFrame ? 'opacity-100' : 'opacity-0'}`}
+      />
+      {/* Placeholder when no frame */}
+      {!hasFrame && (
+        <div className="flex items-center justify-center h-40 md:h-52 text-gray-500 text-sm">
+          📷 Waiting for camera…
+        </div>
+      )}
+      {/* Camera label */}
+      <div className="absolute top-2 left-2 px-2.5 py-1 bg-black/60 backdrop-blur-sm rounded-lg text-xs md:text-sm font-mono uppercase tracking-wide text-gray-200">
+        📷 {name}
+      </div>
+      {/* Live indicator */}
+      {hasFrame && (
+        <div className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-lg">
+          <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+          <span className="text-[10px] md:text-xs font-semibold text-red-400 uppercase">Live</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const CameraFeeds: FC<{ active: boolean }> = ({ active }) => {
+  const [cameras, setCameras] = useState<string[]>([])
+
+  useEffect(() => {
+    fetch('/api/cameras')
+      .then(r => r.json())
+      .then(d => setCameras(d.cameras || []))
+      .catch(() => {})
+  }, [])
+
+  if (cameras.length === 0) return null
+
+  return (
+    <div className="w-full max-w-2xl mb-6 md:mb-8">
+      <h3 className="text-sm md:text-base uppercase tracking-wider text-gray-500 font-medium mb-3 text-center">
+        Camera Feeds
+      </h3>
+      <div className={`grid gap-3 md:gap-4 ${cameras.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+        {cameras.map(name => (
+          <CameraFeed key={name} name={name} active={active} />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /* ================================================================
    App
@@ -210,6 +297,9 @@ function App() {
             </div>
           </div>
         </div>
+
+        {/* ─── Camera Feeds ─── */}
+        <CameraFeeds active={!isWarmup} />
 
         {/* ─── Action Buttons ─── */}
         <div className="w-full max-w-2xl space-y-4 md:space-y-5">

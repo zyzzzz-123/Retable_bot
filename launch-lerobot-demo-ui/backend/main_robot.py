@@ -22,9 +22,10 @@ from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 
-from config import build_inference_command, ROBOT_CONFIG, CONTROL_FILE, LEROBOT_DIR
+from config import build_inference_command, ROBOT_CONFIG, CONTROL_FILE, LEROBOT_DIR, FRAME_DIR
 
 app = FastAPI(title="LeRobot SO101 Control Backend")
 
@@ -376,6 +377,41 @@ async def api_log():
 @app.get("/api/config")
 async def api_config():
     return ROBOT_CONFIG
+
+
+# ==================== Camera Frame Streaming ====================
+
+@app.get("/api/cameras")
+async def api_cameras():
+    """Return list of configured camera names."""
+    cameras_str = ROBOT_CONFIG.get("cameras", "")
+    names = [item.strip().split(":")[0].strip() for item in cameras_str.split(",") if ":" in item]
+    return {"cameras": names}
+
+
+@app.get("/api/frame/{cam_name}")
+async def api_frame(cam_name: str):
+    """Return the latest JPEG frame from a camera.
+
+    Frames are written by eval_act_safe.py to FRAME_DIR/<cam_name>.jpg.
+    """
+    path = os.path.join(FRAME_DIR, f"{cam_name}.jpg")
+    if not os.path.exists(path):
+        return Response(status_code=404, content=b"No frame", media_type="text/plain")
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        return Response(
+            content=data,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+    except Exception:
+        return Response(status_code=503, content=b"Frame read error", media_type="text/plain")
 
 # ==================== WebSocket ====================
 

@@ -9,6 +9,9 @@ import os
 # Control file path — shared between backend and eval_act_safe.py
 CONTROL_FILE = "/tmp/lerobot_cmd"
 
+# Directory where eval_act_safe.py writes JPEG frames for UI camera streaming
+FRAME_DIR = "/tmp/lerobot_frames"
+
 # ── Configuration (identical to eval_act_andy_tube.sh) ──
 ROBOT_CONFIG = {
     "model": "FrankYuzhe/act_merged_tissue_spoon_0203_0204_2202",
@@ -42,5 +45,6 @@ def build_inference_command(task: str = None) -> list[str]:
         "--rest-duration", str(cfg["rest_duration"]),
         "--control-file", CONTROL_FILE,
         "--wait-for-start",
+        "--frame-dir", FRAME_DIR,
     ]
     return cmd

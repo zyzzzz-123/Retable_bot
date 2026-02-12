@@ -33,6 +33,8 @@ import os
 import sys
 import time
 
+import cv2
+import numpy as np
 import torch
 
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
@@ -58,6 +60,42 @@ def parse_cameras(cameras_str: str, width: int = 640, height: int = 480, fps: in
             index_or_path=path.strip(), width=width, height=height, fps=fps
         )
     return cameras
+
+
+# ── Camera frame saving for UI display ──
+
+def save_camera_frames(frame_dir: str, camera_names: list, obs: dict = None, robot=None) -> None:
+    """Save camera frames to JPEG files for UI display.
+
+    Uses frames from `obs` dict if provided (zero extra I/O, preferred during inference).
+    Falls back to calling async_read() on camera objects (used in hold/wait loops).
+    async_read() lazily starts the background thread on first call.
+    """
+    if not frame_dir:
+        return
+    for name in camera_names:
+        frame = None
+        if obs is not None and name in obs:
+            frame = obs[name]
+        elif robot is not None and hasattr(robot, "cameras") and name in robot.cameras:
+            try:
+                frame = robot.cameras[name].async_read()
+            except Exception:
+                continue
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            continue
+        try:
+            # async_read() returns RGB; cv2.imencode expects BGR
+            bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if ok:
+                tmp = os.path.join(frame_dir, f".{name}.jpg.tmp")
+                dst = os.path.join(frame_dir, f"{name}.jpg")
+                with open(tmp, "wb") as f:
+                    f.write(buf.tobytes())
+                os.replace(tmp, dst)
+        except Exception:
+            pass
 
 
 def parse_args():
@@ -104,6 +142,12 @@ def parse_args():
         help="Pre-load model + connect robot, then wait for START command before inference",
     )
 
+    # Camera frame streaming for UI
+    parser.add_argument(
+        "--frame-dir", type=str, default="/tmp/lerobot_frames",
+        help="Directory to save camera frames as JPEG for UI streaming",
+    )
+
     return parser.parse_args()
 
 
@@ -141,11 +185,14 @@ def check_control_file(control_file: str, events: dict) -> None:
         events["emergency_stop"] = False
 
 
-def wait_for_command(control_file: str, events: dict, target_cmd: str = "START") -> str:
+def wait_for_command(control_file: str, events: dict, target_cmd: str = "START",
+                     robot=None, frame_dir: str = "", camera_names: list = None) -> str:
     """Block until a specific command (or QUIT) arrives via control file or keyboard.
 
+    While waiting, captures camera frames for UI display (~5 fps).
     Returns the command received ("START" or "QUIT").
     """
+    _last_ft = 0.0
     while True:
         # Check control file
         cmd = read_control_command(control_file)
@@ -158,11 +205,21 @@ def wait_for_command(control_file: str, events: dict, target_cmd: str = "START")
         if events.get("stop_recording"):
             return "QUIT"
 
+        # Save camera frames for UI while waiting (~5fps)
+        if robot and frame_dir and camera_names:
+            _now = time.perf_counter()
+            if _now - _last_ft > 0.2:
+                save_camera_frames(frame_dir, camera_names, robot=robot)
+                _last_ft = _now
+
         time.sleep(0.1)
 
 
-def run_episodes(args, model, preprocess, postprocess, robot, ds_features, device, events, max_steps):
+def run_episodes(args, model, preprocess, postprocess, robot, ds_features, device, events, max_steps,
+                 frame_dir: str = "", camera_names: list = None):
     """Run the inference episode loop. Returns True if should continue, False to quit."""
+    if camera_names is None:
+        camera_names = []
     for ep in range(args.num_episodes):
         print(f"\n{'─'*50}", flush=True)
         print(f"  Episode {ep + 1}/{args.num_episodes}", flush=True)
@@ -186,6 +243,7 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
                 robot.bus.sync_write("Goal_Position", hold_pos)
                 model.reset()
                 print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume, [r] to go home...", flush=True)
+                _last_ft = 0.0
                 while events.get("emergency_stop"):
                     check_control_file(args.control_file, events)
                     if events.get("go_to_rest"):
@@ -203,11 +261,19 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
                         while events.get("emergency_stop"):
                             check_control_file(args.control_file, events)
                             robot.bus.sync_write("Goal_Position", home_pos)
+                            _now = time.perf_counter()
+                            if _now - _last_ft > 0.2:
+                                save_camera_frames(frame_dir, camera_names, robot=robot)
+                                _last_ft = _now
                             time.sleep(0.05)
                             if events.get("stop_recording"):
                                 break
                         break
                     robot.bus.sync_write("Goal_Position", hold_pos)
+                    _now = time.perf_counter()
+                    if _now - _last_ft > 0.2:
+                        save_camera_frames(frame_dir, camera_names, robot=robot)
+                        _last_ft = _now
                     time.sleep(0.05)
                 print("▶️  Resumed. Continuing inference...", flush=True)
                 continue
@@ -225,9 +291,14 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
                 print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.", flush=True)
                 events["emergency_stop"] = True
                 home_pos = robot.bus.sync_read("Present_Position")
+                _last_ft2 = 0.0
                 while events.get("emergency_stop"):
                     check_control_file(args.control_file, events)
                     robot.bus.sync_write("Goal_Position", home_pos)
+                    _now = time.perf_counter()
+                    if _now - _last_ft2 > 0.2:
+                        save_camera_frames(frame_dir, camera_names, robot=robot)
+                        _last_ft2 = _now
                     time.sleep(0.05)
                     if events.get("stop_recording"):
                         break
@@ -244,6 +315,7 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
 
             # ── Policy inference ──
             obs = robot.get_observation()
+            save_camera_frames(frame_dir, camera_names, obs=obs)
             obs_frame = build_inference_frame(observation=obs, ds_features=ds_features, device=device)
             obs_processed = preprocess(obs_frame)
             action = model.select_action(obs_processed)
@@ -286,7 +358,12 @@ def main():
     # ── Phase 3: Connect robot ──
     print("WARMUP_PHASE: connecting_robot", flush=True)
     camera_config = parse_cameras(args.cameras, args.cam_width, args.cam_height, args.fps)
+    camera_names = list(camera_config.keys())
     robot_cfg = SO101FollowerConfig(port=args.robot_port, id=args.robot_id, cameras=camera_config)
+
+    # Set up frame directory for UI camera display
+    if args.frame_dir:
+        os.makedirs(args.frame_dir, exist_ok=True)
     robot = SO101Follower(robot_cfg)
 
     logger.info(f"Connecting to robot '{args.robot_id}' on {args.robot_port}...")
@@ -330,7 +407,9 @@ def main():
                 print("READY_FOR_START", flush=True)
                 logger.info("Waiting for START command...")
 
-                cmd = wait_for_command(args.control_file, events, "START")
+                cmd = wait_for_command(args.control_file, events, "START",
+                                       robot=robot, frame_dir=args.frame_dir,
+                                       camera_names=camera_names)
                 if cmd == "QUIT":
                     print("Quit received while waiting.", flush=True)
                     break
@@ -347,6 +426,7 @@ def main():
                 should_continue = run_episodes(
                     args, model, preprocess, postprocess,
                     robot, ds_features, device, events, max_steps,
+                    frame_dir=args.frame_dir, camera_names=camera_names,
                 )
 
                 print("INFERENCE_DONE", flush=True)
@@ -362,6 +442,7 @@ def main():
             run_episodes(
                 args, model, preprocess, postprocess,
                 robot, ds_features, device, events, max_steps,
+                frame_dir=args.frame_dir, camera_names=camera_names,
             )
 
     except KeyboardInterrupt:
