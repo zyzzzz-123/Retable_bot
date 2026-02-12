@@ -205,12 +205,12 @@ class SOFollower(Robot):
         your setup requires a different home pose.
         """
         return {
-            "shoulder_pan.pos": 0.0,
-            "shoulder_lift.pos": 0.0,
-            "elbow_flex.pos": 0.0,
-            "wrist_flex.pos": 0.0,
-            "wrist_roll.pos": 0.0,
-            "gripper.pos": 50.0,
+            "shoulder_pan.pos": 1.7,
+            "shoulder_lift.pos": -99.9,
+            "elbow_flex.pos": 94.2,
+            "wrist_flex.pos": 59.0,
+            "wrist_roll.pos": -36.5,
+            "gripper.pos": 3.5,
         }
 
     def emergency_stop(self) -> None:
