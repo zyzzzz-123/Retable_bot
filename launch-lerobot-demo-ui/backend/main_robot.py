@@ -25,7 +25,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from config import build_inference_command, ROBOT_CONFIG, CONTROL_FILE, LEROBOT_DIR, FRAME_DIR
+from config import (build_inference_command, ROBOT_CONFIG, CONTROL_FILE, LEROBOT_DIR, FRAME_DIR,
+                     HAND_DETECT_ENABLED)
 
 app = FastAPI(title="LeRobot SO101 Control Backend")
 
@@ -48,6 +49,10 @@ class RobotState:
         self.process: Optional[asyncio.subprocess.Process] = None
         self.session_log = []
         self._warmup_ready = False  # True once WARMUP_COMPLETE seen
+        # Hand safety detection state
+        self.hand_detect_enabled = HAND_DETECT_ENABLED
+        self.hand_detected = False
+        self.auto_stopped = False
 
     def to_dict(self):
         return {
@@ -55,6 +60,9 @@ class RobotState:
             "step": self.step,
             "progress": self.progress,
             "message": self.message,
+            "hand_detect": self.hand_detect_enabled,
+            "hand_detected": self.hand_detected,
+            "auto_stopped": self.auto_stopped,
         }
 
     def log_event(self, event: str, details: dict = None):
@@ -129,13 +137,27 @@ def parse_output(line: str) -> dict:
     if "inference_done" in lo:
         return {"_signal": "INFERENCE_DONE"}
 
+    # ── Hand safety detection ──
+    if "hand_detect_on" in lo:
+        return {"_signal": "HAND_DETECT_ON"}
+    if "hand_detect_off" in lo:
+        return {"_signal": "HAND_DETECT_OFF"}
+    if "hand detected" in lo and "auto" in lo:
+        return {"state": "PAUSED", "step": "Hand E-Stop", "message": "🖐️ Hand detected — auto emergency stop",
+                "_hand": True, "_auto": True}
+    if "hand cleared" in lo and "auto" in lo:
+        return {"state": "WORKING", "step": "Running", "message": "✅ Hand cleared — auto resumed",
+                "_hand": False, "_auto": False}
+
     # ── Runtime status ──
-    if "emergency stop" in lo:
-        return {"state": "PAUSED", "step": "E-Stop", "message": "Emergency stop — holding position"}
+    if "emergency stop" in lo and "auto" not in lo:
+        return {"state": "PAUSED", "step": "E-Stop", "message": "Emergency stop — holding position",
+                "_auto": False}
     if "home reached" in lo:
         return {"state": "HOMED", "step": "Home", "message": "At home position, inference paused"}
     if "resumed" in lo or "continuing inference" in lo:
-        return {"state": "WORKING", "step": "Running", "message": "Inference resumed"}
+        return {"state": "WORKING", "step": "Running", "message": "Inference resumed",
+                "_hand": False, "_auto": False}
 
     if "episode" in lo and "/" in lo:
         return {"step": "Episode", "message": raw[:60]}
@@ -218,11 +240,31 @@ async def spawn_warmup_process():
                 robot.step = "Complete"
                 robot.progress = 100
                 robot.message = "Inference session complete"
+                robot.hand_detected = False
+                robot.auto_stopped = False
                 robot.log_event("INFERENCE_DONE")
                 await broadcast_state()
                 continue
             if sig == "PROCESS_DONE":
                 continue
+            if sig == "HAND_DETECT_ON":
+                robot.hand_detect_enabled = True
+                robot.log_event("HAND_DETECT_ON")
+                await broadcast_state()
+                continue
+            if sig == "HAND_DETECT_OFF":
+                robot.hand_detect_enabled = False
+                robot.hand_detected = False
+                robot.auto_stopped = False
+                robot.log_event("HAND_DETECT_OFF")
+                await broadcast_state()
+                continue
+
+            # Update hand detection sub-state
+            if "_hand" in updates:
+                robot.hand_detected = updates.pop("_hand")
+            if "_auto" in updates:
+                robot.auto_stopped = updates.pop("_auto")
 
             # Apply normal state updates
             for k in ("state", "step", "progress", "message"):
@@ -363,6 +405,23 @@ async def api_quit():
     return {"status": "ok", "message": "Quit. Re-warming..."}
 
 
+@app.post("/api/hand-detect")
+async def api_hand_detect():
+    """Toggle hand safety detection on/off."""
+    if robot.process is None:
+        return {"status": "error", "message": "Process not running"}
+    new_state = not robot.hand_detect_enabled
+    send_control_command("HAND_ON" if new_state else "HAND_OFF")
+    robot.hand_detect_enabled = new_state
+    if not new_state:
+        robot.hand_detected = False
+        robot.auto_stopped = False
+    robot.log_event("HAND_DETECT_TOGGLE", {"enabled": new_state})
+    await broadcast_state()
+    return {"status": "ok", "enabled": new_state,
+            "message": f"Hand detection {'enabled' if new_state else 'disabled'}"}
+
+
 @app.post("/api/feedback")
 async def api_feedback(feedback: FeedbackRequest):
     robot.log_event("FEEDBACK", {"score": feedback.score, "tags": feedback.tags or []})
@@ -445,12 +504,14 @@ async def startup():
     print(f"  Robot      : {ROBOT_CONFIG['robot_id']} @ {ROBOT_CONFIG['robot_port']}")
     print(f"  Cameras    : {ROBOT_CONFIG['cameras']}")
     print(f"  Control    : {CONTROL_FILE}")
+    print(f"  Hand     : {'ON' if HAND_DETECT_ENABLED else 'OFF'}")
     print("-" * 55)
-    print("  POST /api/start   → Start inference (instant)")
-    print("  POST /api/stop    → Emergency stop")
-    print("  POST /api/reset   → Go to home")
-    print("  POST /api/resume  → Resume inference")
-    print("  POST /api/quit    → Quit & re-warm")
+    print("  POST /api/start       → Start inference (instant)")
+    print("  POST /api/stop        → Emergency stop")
+    print("  POST /api/reset       → Go to home")
+    print("  POST /api/resume      → Resume inference")
+    print("  POST /api/quit        → Quit & re-warm")
+    print("  POST /api/hand-detect → Toggle hand safety")
     print("=" * 55)
     print("  Auto-warming up model + robot...\n")
 

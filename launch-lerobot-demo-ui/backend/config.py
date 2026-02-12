@@ -2,6 +2,7 @@
 Robot Configuration for eval_act_safe.py Integration
 
 Parameters match eval_act_andy_tube.sh exactly.
+Includes hand safety detection configuration.
 """
 
 import os
@@ -25,6 +26,12 @@ ROBOT_CONFIG = {
     "rest_duration": 2.0,
 }
 
+# ── Hand Safety Detection ──
+HAND_DETECT_ENABLED = True        # Enable hand detection at startup
+HAND_DETECT_CAMERA = "front"      # Which camera to monitor
+HAND_DETECT_INTERVAL = 0.25       # Seconds between checks (~4fps)
+HAND_DETECT_COOLDOWN = 8          # Consecutive no-hand frames before auto-resume (~2s)
+
 # Path to the lerobot repo (where eval_act_safe.py lives)
 LEROBOT_DIR = os.path.expanduser("~/lerobot")
 
@@ -47,4 +54,12 @@ def build_inference_command(task: str = None) -> list[str]:
         "--wait-for-start",
         "--frame-dir", FRAME_DIR,
     ]
+    # Hand safety detection
+    if HAND_DETECT_ENABLED:
+        cmd.extend([
+            "--hand-detect",
+            "--hand-detect-camera", HAND_DETECT_CAMERA,
+            "--hand-detect-interval", str(HAND_DETECT_INTERVAL),
+            "--hand-detect-cooldown", str(HAND_DETECT_COOLDOWN),
+        ])
     return cmd
