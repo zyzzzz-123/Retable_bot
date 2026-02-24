@@ -24,11 +24,13 @@ import sys
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import cv2
+import numpy as np
 
 # NOTE: We use CAP_ANY (not CAP_V4L2) — V4L2 backend can cause green tint
 # on some cameras due to incorrect YUYV→BGR conversion.
 # CUDA safety is already ensured by CUDA_VISIBLE_DEVICES="" above.
 WARMUP_FRAMES = 2    # fewer warmup frames = faster snapshots
+SOLID_COLOR_THRESHOLD = 0.95  # reject frames that are >95% one color (green/black)
 
 
 def _is_capture_device(path: str) -> bool:
@@ -84,8 +86,19 @@ def detect_cameras() -> list[dict]:
     return cameras
 
 
+def _is_solid_color(frame) -> bool:
+    """Return True if >95% of pixels are within ±12 of the median (solid green/black)."""
+    if frame is None:
+        return True
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    median_val = float(np.median(gray))
+    within = np.sum(np.abs(gray.astype(float) - median_val) < 12)
+    return (within / gray.size) > SOLID_COLOR_THRESHOLD
+
+
 def capture_snapshot(device: str, quality: int = 80) -> bytes:
-    """Open camera, grab one stable frame, return JPEG bytes."""
+    """Open camera, grab one stable frame, return JPEG bytes.
+    Rejects solid-color frames (green/black from metadata or depth nodes)."""
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         cap.release()
@@ -100,6 +113,9 @@ def capture_snapshot(device: str, quality: int = 80) -> bytes:
 
         if not ret or frame is None:
             raise RuntimeError(f"Failed to read frame from {device}")
+
+        if _is_solid_color(frame):
+            raise RuntimeError(f"Device {device} returned a solid-color frame (unusable)")
 
         _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
         return buf.tobytes()
