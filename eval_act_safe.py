@@ -155,8 +155,31 @@ def main():
                     hold_pos = robot.bus.sync_read("Present_Position")
                     robot.bus.sync_write("Goal_Position", hold_pos)
                     model.reset()
-                    print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume inference...")
+                    print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume, [r] to go home...")
                     while events.get("emergency_stop"):
+                        # Check if user wants to go home during e-stop
+                        if events.get("go_to_rest"):
+                            events["go_to_rest"] = False
+                            events["emergency_stop"] = False  # exit e-stop loop
+                            print("🏠  Moving to rest position...")
+                            go_to_rest_position(
+                                robot,
+                                rest_position=robot.rest_position,
+                                fps=args.fps,
+                                duration_s=args.rest_duration,
+                                events=events,
+                            )
+                            model.reset()
+                            # Hold at home and wait for Enter
+                            print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.")
+                            events["emergency_stop"] = True
+                            home_pos = robot.bus.sync_read("Present_Position")
+                            while events.get("emergency_stop"):
+                                robot.bus.sync_write("Goal_Position", home_pos)
+                                time.sleep(0.05)
+                                if events.get("stop_recording"):
+                                    break
+                            break  # exit outer e-stop while
                         # Keep commanding hold position to resist external forces
                         robot.bus.sync_write("Goal_Position", hold_pos)
                         time.sleep(0.05)
