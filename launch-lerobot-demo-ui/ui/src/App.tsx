@@ -11,6 +11,9 @@ interface StatusMessage {
   step?: string
   progress?: number
   message?: string
+  hand_detect?: boolean
+  hand_detected?: boolean
+  auto_stopped?: boolean
 }
 
 interface Toast {
@@ -31,6 +34,7 @@ const STATE_META: Record<RobotState, {
   READY:   { label: 'Ready',       icon: '🤖', ring: 'ring-emerald-400', bg: 'bg-emerald-500/20', glow: 'shadow-emerald-500/30', text: 'text-emerald-400' },
   WORKING: { label: 'Running',     icon: '⚡',  ring: 'ring-blue-400',    bg: 'bg-blue-500/20',    glow: 'shadow-blue-500/40',    text: 'text-blue-400' },
   PAUSED:  { label: 'Stopped',     icon: '⏸️',  ring: 'ring-amber-400',   bg: 'bg-amber-500/20',   glow: 'shadow-amber-500/30',   text: 'text-amber-400' },
+  // Note: auto_stopped is shown via the hand safety bar, not a separate orb state
   HOMED:   { label: 'At Home',     icon: '🏠', ring: 'ring-violet-400',  bg: 'bg-violet-500/20',  glow: 'shadow-violet-500/30',  text: 'text-violet-400' },
   DONE:    { label: 'Complete',    icon: '✅',  ring: 'ring-emerald-400', bg: 'bg-emerald-500/20', glow: 'shadow-emerald-500/30', text: 'text-emerald-400' },
   ERROR:   { label: 'Error',       icon: '⚠️',  ring: 'ring-red-400',     bg: 'bg-red-500/20',     glow: 'shadow-red-500/30',     text: 'text-red-400' },
@@ -45,7 +49,7 @@ const FEEDBACK_TAGS = [
    Camera Feed Component
    ================================================================ */
 
-const CameraFeed: FC<{ name: string; active: boolean }> = ({ name, active }) => {
+const CameraFeed: FC<{ name: string; active: boolean; handDetected?: boolean; isHandCamera?: boolean }> = ({ name, active, handDetected = false, isHandCamera = false }) => {
   const imgRef = useRef<HTMLImageElement>(null)
   const [hasFrame, setHasFrame] = useState(false)
 
@@ -55,7 +59,6 @@ const CameraFeed: FC<{ name: string; active: boolean }> = ({ name, active }) => 
 
     const refresh = () => {
       if (cancelled || !imgRef.current) return
-      // Create a new Image to preload — avoids flicker
       const loader = new Image()
       loader.onload = () => {
         if (!cancelled && imgRef.current) {
@@ -70,18 +73,20 @@ const CameraFeed: FC<{ name: string; active: boolean }> = ({ name, active }) => 
     }
 
     refresh()
-    const id = setInterval(refresh, 200) // ~5 fps
+    const id = setInterval(refresh, 200)
     return () => { cancelled = true; clearInterval(id) }
   }, [name, active])
 
   return (
-    <div className="relative rounded-xl overflow-hidden bg-gray-800/70 border border-gray-700/50">
+    <div className={`relative rounded-xl overflow-hidden bg-gray-800/70 transition-all duration-300
+                    ${isHandCamera && handDetected
+                      ? 'ring-3 ring-red-500 shadow-lg shadow-red-500/40'
+                      : 'border border-gray-700/50'}`}>
       <img
         ref={imgRef}
         alt={name}
         className={`w-full h-auto block transition-opacity duration-300 ${hasFrame ? 'opacity-100' : 'opacity-0'}`}
       />
-      {/* Placeholder when no frame */}
       {!hasFrame && (
         <div className="flex items-center justify-center h-40 md:h-52 text-gray-500 text-sm">
           📷 Waiting for camera…
@@ -98,11 +103,30 @@ const CameraFeed: FC<{ name: string; active: boolean }> = ({ name, active }) => 
           <span className="text-[10px] md:text-xs font-semibold text-red-400 uppercase">Live</span>
         </div>
       )}
+      {/* ── Hand detection overlay on front camera ── */}
+      {isHandCamera && handDetected && hasFrame && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          {/* Semi-transparent red overlay */}
+          <div className="absolute inset-0 bg-red-600/25 animate-pulse" />
+          {/* Hand detected badge */}
+          <div className="relative z-10 flex flex-col items-center gap-1.5 px-4 py-3 bg-red-600/90 backdrop-blur-sm rounded-xl shadow-xl">
+            <span className="text-3xl md:text-4xl">🖐️</span>
+            <span className="text-sm md:text-base font-bold text-white uppercase tracking-wider">Hand Detected</span>
+          </div>
+        </div>
+      )}
+      {/* ── Hand safety active badge (no hand, shield icon) ── */}
+      {isHandCamera && !handDetected && hasFrame && (
+        <div className="absolute bottom-2 right-2 flex items-center gap-1.5 px-2 py-1 bg-emerald-600/70 backdrop-blur-sm rounded-lg">
+          <span className="text-xs md:text-sm">🛡️</span>
+          <span className="text-[10px] md:text-xs font-semibold text-emerald-200 uppercase">Safe</span>
+        </div>
+      )}
     </div>
   )
 }
 
-const CameraFeeds: FC<{ active: boolean }> = ({ active }) => {
+const CameraFeeds: FC<{ active: boolean; handDetected: boolean; handDetectEnabled: boolean }> = ({ active, handDetected, handDetectEnabled }) => {
   const [cameras, setCameras] = useState<string[]>([])
 
   useEffect(() => {
@@ -121,7 +145,13 @@ const CameraFeeds: FC<{ active: boolean }> = ({ active }) => {
       </h3>
       <div className={`grid gap-3 md:gap-4 ${cameras.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
         {cameras.map(name => (
-          <CameraFeed key={name} name={name} active={active} />
+          <CameraFeed
+            key={name}
+            name={name}
+            active={active}
+            handDetected={handDetected}
+            isHandCamera={handDetectEnabled && name === 'front'}
+          />
         ))}
       </div>
     </div>
@@ -143,6 +173,9 @@ function App() {
   const [showFeedback, setShowFeedback] = useState(false)
   const [fbScore, setFbScore]   = useState<'up' | 'down' | null>(null)
   const [fbTags, setFbTags]     = useState<string[]>([])
+  const [handDetect, setHandDetect]       = useState(true)
+  const [handDetected, setHandDetected]   = useState(false)
+  const [autoStopped, setAutoStopped]     = useState(false)
 
   const wsRef     = useRef<WebSocket | null>(null)
   const reconnRef = useRef<number | null>(null)
@@ -176,6 +209,7 @@ function App() {
   const doHome   = useCallback(() => api('/api/reset',  'Going to home'),      [api])
   const doResume = useCallback(() => api('/api/resume', 'Resumed'),            [api])
   const doQuit   = useCallback(() => api('/api/quit',   'Quit & re-warming'),  [api])
+  const doToggleHand = useCallback(() => api('/api/hand-detect', handDetect ? 'Hand safety OFF' : 'Hand safety ON'), [api, handDetect])
 
   const submitFeedback = useCallback(async () => {
     if (!fbScore) return
@@ -209,6 +243,9 @@ function App() {
           if (d.step !== undefined)     setStep(d.step)
           if (d.progress !== undefined) setProgress(Math.max(0, Math.min(100, d.progress)))
           if (d.message !== undefined)  setMessage(d.message)
+          if (d.hand_detect !== undefined)  setHandDetect(d.hand_detect)
+          if (d.hand_detected !== undefined) setHandDetected(d.hand_detected)
+          if (d.auto_stopped !== undefined) setAutoStopped(d.auto_stopped)
         } catch { /* ignore */ }
       }
       ws.onclose = () => {
@@ -263,7 +300,7 @@ function App() {
             <span className="text-6xl md:text-7xl lg:text-8xl">{meta.icon}</span>
           </div>
           <p className={`mt-4 md:mt-6 text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-wide ${meta.text}`}>
-            {meta.label}
+            {autoStopped && isPaused ? '🖐️ Hand Stop' : meta.label}
           </p>
         </div>
 
@@ -298,8 +335,59 @@ function App() {
           </div>
         </div>
 
+        {/* ─── Hand Safety Bar ─── */}
+        <div className="w-full max-w-2xl mb-4 md:mb-6">
+          <div className={`flex items-center justify-between rounded-2xl px-5 py-4 md:px-6 md:py-5 transition-all duration-300
+                          ${handDetected
+                            ? 'bg-red-600/20 ring-2 ring-red-500/60'
+                            : handDetect
+                              ? 'bg-emerald-600/10 ring-1 ring-emerald-500/30'
+                              : 'bg-gray-800/60 ring-1 ring-gray-700/50'}`}>
+            <div className="flex items-center gap-3">
+              {/* Status indicator */}
+              <div className={`relative flex items-center justify-center w-10 h-10 md:w-12 md:h-12 rounded-full
+                              ${handDetected
+                                ? 'bg-red-500/30'
+                                : handDetect
+                                  ? 'bg-emerald-500/20'
+                                  : 'bg-gray-700/50'}`}>
+                <span className="text-xl md:text-2xl">{handDetected ? '🖐️' : handDetect ? '🛡️' : '🚫'}</span>
+                {handDetected && (
+                  <span className="absolute -top-0.5 -right-0.5 h-3 w-3 md:h-4 md:w-4 rounded-full bg-red-500 animate-ping" />
+                )}
+              </div>
+              <div>
+                <p className={`text-sm md:text-base font-bold ${
+                  handDetected ? 'text-red-400' : handDetect ? 'text-emerald-400' : 'text-gray-500'
+                }`}>
+                  {handDetected ? '🖐️ Hand Detected — Auto Stopped!' :
+                   handDetect ? 'Hand Safety Active' : 'Hand Safety Off'}
+                </p>
+                <p className="text-xs md:text-sm text-gray-500">
+                  {handDetect
+                    ? 'Auto e-stop if a human hand enters the front camera'
+                    : 'Manual control only — tap to enable'}
+                </p>
+              </div>
+            </div>
+            {/* Toggle button */}
+            <button
+              onClick={doToggleHand}
+              disabled={isWarmup}
+              className={`relative w-14 h-8 md:w-16 md:h-9 rounded-full transition-all duration-300 flex-shrink-0
+                         ${isWarmup ? 'opacity-40 cursor-not-allowed' :
+                           handDetect
+                             ? 'bg-emerald-500 hover:bg-emerald-400'
+                             : 'bg-gray-600 hover:bg-gray-500'}`}
+            >
+              <div className={`absolute top-1 w-6 h-6 md:w-7 md:h-7 rounded-full bg-white shadow-md transition-transform duration-300
+                              ${handDetect ? 'translate-x-7 md:translate-x-8' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        </div>
+
         {/* ─── Camera Feeds ─── */}
-        <CameraFeeds active={!isWarmup} />
+        <CameraFeeds active={!isWarmup} handDetected={handDetected} handDetectEnabled={handDetect} />
 
         {/* ─── Action Buttons ─── */}
         <div className="w-full max-w-2xl space-y-4 md:space-y-5">

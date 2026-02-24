@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ACT policy safe evaluation script with Emergency Stop and Go-to-Home.
+"""ACT policy safe evaluation script with Emergency Stop, Go-to-Home, and Hand Safety.
 
 Control via keyboard (terminal must have focus) OR control file (for UI backend):
     Spacebar / ESTOP   → Emergency Stop (hold current position, pause inference)
@@ -7,6 +7,11 @@ Control via keyboard (terminal must have focus) OR control file (for UI backend)
     r        / HOME    → Go to rest/home position (smooth 2s interpolation), then pause
     →(right)           → Skip current episode
     Esc      / QUIT    → Quit all episodes
+
+Hand Safety (--hand-detect):
+    Automatically detects human hands in the front camera using MediaPipe.
+    Triggers emergency stop when a hand is detected; auto-resumes when clear.
+    Runs in a separate lightweight CPU thread (~15ms/frame, ~3-5fps).
 
 Pre-warm mode (--wait-for-start):
     Loads model + connects robot on startup, then waits for START command.
@@ -21,16 +26,19 @@ Usage:
         --fps 30 \\
         --episode-time 200 \\
         --num-episodes 10 \\
-        --device cuda
+        --device cuda \\
+        --hand-detect
 
     # Pre-warm mode (for UI):
-    python eval_act_safe.py --wait-for-start --control-file /tmp/lerobot_cmd ...
+    python eval_act_safe.py --wait-for-start --control-file /tmp/lerobot_cmd --hand-detect ...
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
+import threading
 import time
 
 import cv2
@@ -49,6 +57,119 @@ from lerobot.utils.robot_utils import precise_sleep
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+
+# ── Hand Detection Thread (MediaPipe, CPU-only, ~15ms/frame) ──
+
+class HandDetector:
+    """Lightweight hand detector running in a background thread.
+
+    Reads the latest front camera frame from the shared JPEG file
+    (already written by save_camera_frames). Zero extra camera I/O.
+    Uses MediaPipe HandLandmarker (float16, CPU) — ~15ms per frame.
+
+    Attributes:
+        hand_detected (bool): True if a hand is currently visible.
+        enabled (bool): Toggle detection on/off at runtime.
+    """
+
+    MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "hand_landmarker.task")
+
+    def __init__(
+        self,
+        frame_path: str,
+        check_interval: float = 0.25,   # seconds between checks (~4 fps)
+        cooldown_frames: int = 8,        # consecutive no-hand frames before clearing
+        min_confidence: float = 0.5,
+    ):
+        self.frame_path = frame_path
+        self.check_interval = check_interval
+        self.cooldown_frames = cooldown_frames
+        self.min_confidence = min_confidence
+
+        self.hand_detected = False
+        self.enabled = True
+        self._no_hand_count = 0
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._detector = None
+
+    def start(self):
+        """Start the background detection thread."""
+        import mediapipe as mp
+        from mediapipe.tasks.python import BaseOptions, vision
+
+        if not os.path.exists(self.MODEL_PATH):
+            logger.error(f"Hand detection model not found: {self.MODEL_PATH}")
+            logger.error("Download: https://storage.googleapis.com/mediapipe-models/"
+                         "hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task")
+            return
+
+        options = vision.HandLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=self.MODEL_PATH),
+            running_mode=vision.RunningMode.IMAGE,
+            num_hands=1,
+            min_hand_detection_confidence=self.min_confidence,
+        )
+        self._detector = vision.HandLandmarker.create_from_options(options)
+        logger.info("HandDetector: model loaded, starting background thread")
+
+        self._thread = threading.Thread(target=self._run, daemon=True, name="hand-detector")
+        self._thread.start()
+
+    def stop(self):
+        """Stop the background thread and release resources."""
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+        if self._detector:
+            self._detector.close()
+            self._detector = None
+        logger.info("HandDetector: stopped")
+
+    def _run(self):
+        """Background loop: read JPEG → detect → update flag."""
+        import mediapipe as mp
+
+        while not self._stop_event.is_set():
+            if self.enabled and self._detector:
+                try:
+                    self._check_frame(mp)
+                except Exception as e:
+                    logger.debug(f"HandDetector frame check error: {e}")
+            self._stop_event.wait(self.check_interval)
+
+    def _check_frame(self, mp):
+        """Read latest front camera JPEG and run hand detection."""
+        if not os.path.exists(self.frame_path):
+            return
+
+        # Read JPEG (already saved by save_camera_frames)
+        frame_bgr = cv2.imread(self.frame_path)
+        if frame_bgr is None:
+            return
+
+        # Downscale for speed (detection doesn't need full res)
+        h, w = frame_bgr.shape[:2]
+        if w > 320:
+            scale = 320.0 / w
+            frame_bgr = cv2.resize(frame_bgr, (320, int(h * scale)), interpolation=cv2.INTER_AREA)
+
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+        result = self._detector.detect(mp_image)
+
+        if result.hand_landmarks:
+            if not self.hand_detected:
+                logger.info("🖐️  Hand detected in front camera!")
+            self.hand_detected = True
+            self._no_hand_count = 0
+        else:
+            self._no_hand_count += 1
+            if self._no_hand_count >= self.cooldown_frames:
+                if self.hand_detected:
+                    logger.info("✅  Hand cleared from front camera.")
+                self.hand_detected = False
 
 
 def parse_cameras(cameras_str: str, width: int = 640, height: int = 480, fps: int = 30) -> dict:
@@ -148,6 +269,24 @@ def parse_args():
         help="Directory to save camera frames as JPEG for UI streaming",
     )
 
+    # Hand safety detection
+    parser.add_argument(
+        "--hand-detect", action="store_true",
+        help="Enable automatic hand detection safety: auto e-stop when a hand is seen in the front camera",
+    )
+    parser.add_argument(
+        "--hand-detect-camera", type=str, default="front",
+        help="Which camera to use for hand detection (default: front)",
+    )
+    parser.add_argument(
+        "--hand-detect-interval", type=float, default=0.25,
+        help="Seconds between hand detection checks (default: 0.25 = ~4fps)",
+    )
+    parser.add_argument(
+        "--hand-detect-cooldown", type=int, default=8,
+        help="Consecutive no-hand frames before auto-resume (default: 8 = ~2s)",
+    )
+
     return parser.parse_args()
 
 
@@ -164,7 +303,7 @@ def read_control_command(control_file: str) -> str:
         return ""
 
 
-def check_control_file(control_file: str, events: dict) -> None:
+def check_control_file(control_file: str, events: dict, hand_detector: "HandDetector | None" = None) -> None:
     """Read a command from the control file and map it to events."""
     cmd = read_control_command(control_file)
     if not cmd:
@@ -174,6 +313,7 @@ def check_control_file(control_file: str, events: dict) -> None:
         events["exit_early"] = True
     elif cmd == "RESUME":
         events["emergency_stop"] = False
+        events["auto_stopped"] = False  # Clear auto-stop flag on manual resume
     elif cmd == "HOME":
         events["go_to_rest"] = True
         events["exit_early"] = True
@@ -183,10 +323,24 @@ def check_control_file(control_file: str, events: dict) -> None:
     elif cmd == "START":
         # Used in wait-for-start mode; also works as resume
         events["emergency_stop"] = False
+        events["auto_stopped"] = False
+    elif cmd == "HAND_ON":
+        if hand_detector:
+            hand_detector.enabled = True
+            print("HAND_DETECT_ON", flush=True)
+            logger.info("Hand detection ENABLED")
+    elif cmd == "HAND_OFF":
+        if hand_detector:
+            hand_detector.enabled = False
+            hand_detector.hand_detected = False
+            events["auto_stopped"] = False
+            print("HAND_DETECT_OFF", flush=True)
+            logger.info("Hand detection DISABLED")
 
 
 def wait_for_command(control_file: str, events: dict, target_cmd: str = "START",
-                     robot=None, frame_dir: str = "", camera_names: list = None) -> str:
+                     robot=None, frame_dir: str = "", camera_names: list = None,
+                     hand_detector: "HandDetector | None" = None) -> str:
     """Block until a specific command (or QUIT) arrives via control file or keyboard.
 
     While waiting, captures camera frames for UI display (~5 fps).
@@ -194,12 +348,20 @@ def wait_for_command(control_file: str, events: dict, target_cmd: str = "START",
     """
     _last_ft = 0.0
     while True:
-        # Check control file
+        # Check control file (including HAND_ON/OFF commands)
         cmd = read_control_command(control_file)
         if cmd == target_cmd:
             return cmd
         if cmd == "QUIT":
             return "QUIT"
+        # Handle HAND_ON/OFF even while waiting
+        if cmd == "HAND_ON" and hand_detector:
+            hand_detector.enabled = True
+            print("HAND_DETECT_ON", flush=True)
+        elif cmd == "HAND_OFF" and hand_detector:
+            hand_detector.enabled = False
+            hand_detector.hand_detected = False
+            print("HAND_DETECT_OFF", flush=True)
 
         # Check keyboard events (Esc → quit)
         if events.get("stop_recording"):
@@ -216,7 +378,8 @@ def wait_for_command(control_file: str, events: dict, target_cmd: str = "START",
 
 
 def run_episodes(args, model, preprocess, postprocess, robot, ds_features, device, events, max_steps,
-                 frame_dir: str = "", camera_names: list = None):
+                 frame_dir: str = "", camera_names: list = None,
+                 hand_detector: "HandDetector | None" = None):
     """Run the inference episode loop. Returns True if should continue, False to quit."""
     if camera_names is None:
         camera_names = []
@@ -230,25 +393,47 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
         events["emergency_stop"] = False
         events["go_to_rest"] = False
         events["stop_recording"] = False
+        events["auto_stopped"] = False
 
         for step in range(max_steps):
             start_t = time.perf_counter()
 
             # ── Check external control file for commands ──
-            check_control_file(args.control_file, events)
+            check_control_file(args.control_file, events, hand_detector)
+
+            # ── Hand Safety: auto e-stop when hand detected ──
+            if (hand_detector and hand_detector.enabled and hand_detector.hand_detected
+                    and not events.get("emergency_stop")):
+                events["emergency_stop"] = True
+                events["auto_stopped"] = True
+                events["exit_early"] = True
+                print("🖐️  HAND DETECTED — auto emergency stop!", flush=True)
 
             # ── Emergency Stop: hold current position, pause inference ──
             if events.get("emergency_stop"):
                 hold_pos = robot.bus.sync_read("Present_Position")
                 robot.bus.sync_write("Goal_Position", hold_pos)
                 model.reset()
-                print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume, [r] to go home...", flush=True)
+                if events.get("auto_stopped"):
+                    print("🖐️  AUTO E-STOP — holding position. Remove hand to auto-resume...", flush=True)
+                else:
+                    print("⚠️  EMERGENCY STOP — holding position. Press [Enter] to resume, [r] to go home...", flush=True)
                 _last_ft = 0.0
                 while events.get("emergency_stop"):
-                    check_control_file(args.control_file, events)
+                    check_control_file(args.control_file, events, hand_detector)
+
+                    # Auto-resume: hand detector says clear + this was an auto stop
+                    if (hand_detector and events.get("auto_stopped")
+                            and not hand_detector.hand_detected):
+                        events["emergency_stop"] = False
+                        events["auto_stopped"] = False
+                        print("✅  Hand cleared — auto resuming inference...", flush=True)
+                        break
+
                     if events.get("go_to_rest"):
                         events["go_to_rest"] = False
                         events["emergency_stop"] = False
+                        events["auto_stopped"] = False
                         print("🏠  Moving to rest position...", flush=True)
                         go_to_rest_position(
                             robot, rest_position=robot.rest_position,
@@ -259,7 +444,7 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
                         events["emergency_stop"] = True
                         home_pos = robot.bus.sync_read("Present_Position")
                         while events.get("emergency_stop"):
-                            check_control_file(args.control_file, events)
+                            check_control_file(args.control_file, events, hand_detector)
                             robot.bus.sync_write("Goal_Position", home_pos)
                             _now = time.perf_counter()
                             if _now - _last_ft > 0.2:
@@ -293,7 +478,7 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
                 home_pos = robot.bus.sync_read("Present_Position")
                 _last_ft2 = 0.0
                 while events.get("emergency_stop"):
-                    check_control_file(args.control_file, events)
+                    check_control_file(args.control_file, events, hand_detector)
                     robot.bus.sync_write("Goal_Position", home_pos)
                     _now = time.perf_counter()
                     if _now - _last_ft2 > 0.2:
@@ -379,6 +564,20 @@ def main():
 
     # ── Initialize keyboard listener ──
     listener, events = init_keyboard_listener()
+    events["auto_stopped"] = False  # Track auto e-stop from hand detection
+
+    # ── Initialize hand detector (if enabled) ──
+    hand_detector = None
+    if args.hand_detect:
+        hand_cam = args.hand_detect_camera
+        frame_path = os.path.join(args.frame_dir, f"{hand_cam}.jpg")
+        hand_detector = HandDetector(
+            frame_path=frame_path,
+            check_interval=args.hand_detect_interval,
+            cooldown_frames=args.hand_detect_cooldown,
+        )
+        hand_detector.start()
+        print(f"HAND_DETECT_ON", flush=True)
 
     print("\n" + "=" * 60)
     print("  ACT Safe Evaluation")
@@ -388,6 +587,10 @@ def main():
     print("  FPS   : " + str(args.fps))
     print("  Episodes: " + f"{args.num_episodes} × {args.episode_time}s ({max_steps} steps)")
     print("  Mode  : " + ("WAIT-FOR-START (pre-warm)" if args.wait_for_start else "IMMEDIATE"))
+    if hand_detector:
+        print(f"  Hand  : ENABLED (camera={args.hand_detect_camera}, interval={args.hand_detect_interval}s, cooldown={args.hand_detect_cooldown})")
+    else:
+        print("  Hand  : DISABLED (use --hand-detect to enable)")
     print("-" * 60)
     print("  Keyboard shortcuts:")
     print("    [Space]  Emergency Stop (hold position, pause inference)")
@@ -395,6 +598,10 @@ def main():
     print("    [r]      Go to Home / rest position (2s), then pause")
     print("    [→]      Skip current episode")
     print("    [Esc]    Quit")
+    if hand_detector:
+        print("  Auto safety:")
+        print("    🖐️  Hand in front camera → auto e-stop")
+        print("    ✅  Hand removed → auto resume (~2s delay)")
     print("=" * 60 + "\n")
 
     # Signal warmup complete
@@ -409,7 +616,8 @@ def main():
 
                 cmd = wait_for_command(args.control_file, events, "START",
                                        robot=robot, frame_dir=args.frame_dir,
-                                       camera_names=camera_names)
+                                       camera_names=camera_names,
+                                       hand_detector=hand_detector)
                 if cmd == "QUIT":
                     print("Quit received while waiting.", flush=True)
                     break
@@ -422,18 +630,18 @@ def main():
                 events["exit_early"] = False
                 events["emergency_stop"] = False
                 events["go_to_rest"] = False
+                events["auto_stopped"] = False
 
                 should_continue = run_episodes(
                     args, model, preprocess, postprocess,
                     robot, ds_features, device, events, max_steps,
                     frame_dir=args.frame_dir, camera_names=camera_names,
+                    hand_detector=hand_detector,
                 )
 
                 print("INFERENCE_DONE", flush=True)
 
                 if not should_continue:
-                    # User pressed Quit during episodes — but in wait mode, go back to waiting
-                    # unless stop_recording was from a QUIT command
                     events["stop_recording"] = False
                     continue
 
@@ -443,12 +651,15 @@ def main():
                 args, model, preprocess, postprocess,
                 robot, ds_features, device, events, max_steps,
                 frame_dir=args.frame_dir, camera_names=camera_names,
+                hand_detector=hand_detector,
             )
 
     except KeyboardInterrupt:
         print("\n\nCtrl+C detected. Shutting down...", flush=True)
 
     finally:
+        if hand_detector:
+            hand_detector.stop()
         if robot.is_connected:
             print("Disconnecting robot...", flush=True)
             robot.disconnect()
