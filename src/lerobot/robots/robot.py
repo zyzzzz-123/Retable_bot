@@ -179,6 +179,45 @@ class Robot(abc.ABC):
         """
         pass
 
+    def emergency_stop(self) -> None:
+        """Immediately halt all motor movement.
+
+        This method is called when an emergency stop is triggered (e.g. via a
+        keyboard shortcut). The default implementation logs a warning; subclasses
+        should override this to perform hardware-specific actions such as
+        disabling torque or engaging brakes.
+
+        After an emergency stop, :pymeth:`resume` should be called before
+        sending new actions to the robot.
+        """
+        import logging as _logging
+
+        _logging.warning(f"Emergency stop activated on {self}!")
+
+    def resume(self) -> None:
+        """Resume operation after an emergency stop.
+
+        Re-enables torque or performs any hardware-specific steps needed to
+        allow the robot to accept actions again. The default implementation
+        logs an informational message; subclasses should override for
+        hardware-specific behaviour.
+        """
+        import logging as _logging
+
+        _logging.info(f"Resuming operation on {self}.")
+
+    @property
+    def rest_position(self) -> dict[str, float]:
+        """The folded / home joint-position dict the robot should return to.
+
+        Keys must match :pymeth:`action_features` (e.g.
+        ``"shoulder_pan.pos"``). Subclasses should override this to provide
+        a sensible default for their hardware. The base implementation returns
+        all zeros (midpoint) which may **not** be safe for every arm — always
+        verify on your specific hardware.
+        """
+        return {k: 0.0 for k in self.action_features}
+
     @abc.abstractmethod
     def disconnect(self) -> None:
         """Disconnect from the robot and perform any necessary cleanup."""

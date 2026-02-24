@@ -196,6 +196,44 @@ class SOFollower(Robot):
 
         return obs_dict
 
+    @property
+    def rest_position(self) -> dict[str, float]:
+        """Folded / home position for SO-100/101 arms.
+
+        All body joints at midpoint (0.0 in RANGE_M100_100 mode), gripper half
+        open (50.0 in RANGE_0_100 mode). Override via config or subclass if
+        your setup requires a different home pose.
+        """
+        return {
+            "shoulder_pan.pos": 0.0,
+            "shoulder_lift.pos": 0.0,
+            "elbow_flex.pos": 0.0,
+            "wrist_flex.pos": 0.0,
+            "wrist_roll.pos": 0.0,
+            "gripper.pos": 50.0,
+        }
+
+    def emergency_stop(self) -> None:
+        """Immediately disable torque on all motors, allowing the arm to go limp.
+
+        This is the safest default for low-cost servo arms like the SO-100/101,
+        as holding position under unexpected conditions could damage servos or
+        strip gears. The arm will become back-drivable so an operator can
+        manually move it to a safe position.
+        """
+        super().emergency_stop()
+        self.bus.disable_torque()
+        logger.warning(f"{self} emergency stop: torque disabled on all motors.")
+
+    def resume(self) -> None:
+        """Re-enable torque on all motors after an emergency stop.
+
+        The robot will hold its current position once torque is re-enabled.
+        A new action must be sent before it will move.
+        """
+        super().resume()
+        self.bus.enable_torque()
+        logger.info(f"{self} resumed: torque re-enabled on all motors.")
     def send_action(self, action: RobotAction) -> RobotAction:
         """Command arm to move to a target joint configuration.
 

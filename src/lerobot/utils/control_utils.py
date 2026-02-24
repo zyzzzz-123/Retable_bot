@@ -18,6 +18,7 @@
 
 
 import logging
+import time
 import traceback
 from contextlib import nullcontext
 from copy import copy
@@ -34,6 +35,7 @@ from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.processor import PolicyAction, PolicyProcessorPipeline
 from lerobot.robots import Robot
+from lerobot.utils.robot_utils import precise_sleep
 
 
 @cache
@@ -135,6 +137,8 @@ def init_keyboard_listener():
     events["exit_early"] = False
     events["rerecord_episode"] = False
     events["stop_recording"] = False
+    events["emergency_stop"] = False
+    events["go_to_rest"] = False
 
     if is_headless():
         logging.warning(
@@ -159,6 +163,20 @@ def init_keyboard_listener():
                 print("Escape key pressed. Stopping data recording...")
                 events["stop_recording"] = True
                 events["exit_early"] = True
+            elif key == keyboard.Key.space:
+                if not events["emergency_stop"]:
+                    print("\n⚠️  EMERGENCY STOP triggered! Press 'Enter' to resume...")
+                    events["emergency_stop"] = True
+                    events["exit_early"] = True
+            elif key == keyboard.Key.enter:
+                if events["emergency_stop"]:
+                    print("▶️  Resuming from emergency stop...")
+                    events["emergency_stop"] = False
+            elif hasattr(key, "char") and key.char == "r":
+                if not events["emergency_stop"]:
+                    print("🏠  GO TO REST position triggered!")
+                    events["go_to_rest"] = True
+                    events["exit_early"] = True
         except Exception as e:
             print(f"Error handling key press: {e}")
 
@@ -233,3 +251,74 @@ def sanity_check_dataset_robot_compatibility(
         raise ValueError(
             "Dataset metadata compatibility check failed with mismatches:\n" + "\n".join(mismatches)
         )
+
+
+def go_to_rest_position(
+    robot: Robot,
+    rest_position: dict[str, float],
+    fps: int = 30,
+    duration_s: float = 2.0,
+    events: dict | None = None,
+) -> None:
+    """Smoothly move the robot from its current position to a rest/home position.
+
+    Reads the robot's current joint positions and linearly interpolates toward
+    *rest_position* over *duration_s* seconds. The movement can be interrupted
+    by an emergency-stop event.
+
+    This is simpler and safer than trajectory retrace for most pick-and-place
+    setups, because the arm always ends at a known, predictable pose.
+
+    Args:
+        robot: The connected :pyclass:`Robot` instance.
+        rest_position: Target joint-position dict (e.g.
+            ``{"shoulder_pan.pos": 0.0, "gripper.pos": 50.0, ...}``).
+            Must contain the same keys returned by the robot's
+            ``get_observation()`` for joint data.
+        fps: Control-loop frequency for the interpolation.
+        duration_s: Total time (seconds) to reach the rest position.
+            Slower values produce gentler motion.
+        events: Optional event dict (from :pyfunc:`init_keyboard_listener`)
+            to allow interruption via emergency stop during the move.
+
+    Example::
+
+        go_to_rest_position(
+            robot,
+            rest_position=robot.rest_position,
+            fps=30,
+            duration_s=2.0,
+            events=events,
+        )
+    """
+    # Read current joint positions (filter to .pos keys only)
+    obs = robot.get_observation()
+    current_pos = {k: v for k, v in obs.items() if k.endswith(".pos")}
+
+    # Only interpolate keys that exist in both current and rest positions
+    shared_keys = set(current_pos) & set(rest_position)
+    if not shared_keys:
+        logging.warning("go_to_rest_position: no shared joint keys between current obs and rest_position.")
+        return
+
+    n_steps = max(1, int(fps * duration_s))
+    step_period = 1.0 / fps
+
+    logging.info(f"Moving to rest position over {duration_s}s ({n_steps} steps)...")
+
+    for step in range(1, n_steps + 1):
+        # Check for emergency stop during movement
+        if events and events.get("emergency_stop"):
+            logging.warning("Emergency stop triggered during go-to-rest — halting.")
+            robot.emergency_stop()
+            return
+
+        alpha = step / n_steps
+        interpolated = {
+            k: current_pos[k] * (1.0 - alpha) + rest_position[k] * alpha
+            for k in shared_keys
+        }
+        robot.send_action(interpolated)
+        precise_sleep(step_period)
+
+    logging.info("Reached rest position.")
