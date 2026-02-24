@@ -17,6 +17,7 @@ import glob
 import os
 import platform
 import re
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,18 +31,21 @@ from pydantic import BaseModel
 
 # ── Constants ──────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config.py"
-SNAPSHOT_TIMEOUT = 3.0  # seconds to wait for a camera frame
-CACHE_TTL = 0.4  # seconds to cache a snapshot per device
+CACHE_TTL = 1.5          # seconds to cache a snapshot per device
+WARMUP_FRAMES = 5        # frames to discard for auto-exposure settling
+SOLID_COLOR_THRESHOLD = 0.97   # fraction of pixels within ±10 of median = solid color
 
+# ── Global camera lock — only one camera open at a time ───────────────────
+# This prevents resource contention when multiple browser polls arrive
+_camera_lock = threading.Lock()
 
-# ── Snapshot cache (avoids re-opening cameras on rapid polls) ──────────────
+# ── Snapshot cache ─────────────────────────────────────────────────────────
 _snapshot_cache: dict[str, tuple[float, bytes]] = {}
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown hooks."""
     yield
     _snapshot_cache.clear()
 
@@ -58,25 +62,84 @@ app.add_middleware(
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+def _is_capture_device(path: str) -> bool:
+    """
+    On Linux, USB cameras expose pairs of /dev/videoN nodes:
+      - Even index  (0, 2, 4, …)  → actual capture stream
+      - Odd index   (1, 3, 5, …)  → metadata / control node (returns garbage/green)
+
+    Filter to even-numbered devices only to avoid metadata nodes.
+    Exception: if only odd-numbered devices exist for a given path, keep them.
+    """
+    try:
+        num = int(re.search(r"\d+$", path).group())
+        return num % 2 == 0
+    except (AttributeError, ValueError):
+        return True  # non-numeric path → keep it
+
+
+def _is_solid_color_frame(frame) -> bool:
+    """
+    Return True if the frame is dominated by a single solid color
+    (i.e. blank green, all-black, etc.) and is therefore not useful.
+    Uses the fact that a usable camera frame has variance across its pixels.
+    """
+    import numpy as np
+    if frame is None:
+        return True
+    # Convert to grayscale for a simple check
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    median_val = float(np.median(gray))
+    # Fraction of pixels within ±12 of the median
+    within = np.sum(np.abs(gray.astype(float) - median_val) < 12)
+    fraction = within / gray.size
+    return fraction > SOLID_COLOR_THRESHOLD
+
+
 def _detect_video_devices() -> list[dict[str, Any]]:
-    """Scan /dev/video* and return metadata for each working camera."""
+    """
+    Scan /dev/video* and return metadata for each usable capture camera.
+    - Filters to even-numbered devices (skips metadata/control nodes)
+    - Validates that each device returns a real (non-solid-color) frame
+    - Sequential access (protected by _camera_lock)
+    """
     cameras: list[dict[str, Any]] = []
 
     if platform.system() == "Linux":
-        paths = sorted(glob.glob("/dev/video*"))
+        all_paths = sorted(glob.glob("/dev/video*"))
+        # Filter to capture nodes (even-numbered)
+        paths = [p for p in all_paths if _is_capture_device(p)]
     else:
         paths = [str(i) for i in range(20)]
 
     for path in paths:
         target = path if platform.system() == "Linux" else int(path)
-        cap = cv2.VideoCapture(target)
-        if cap.isOpened():
+        with _camera_lock:
+            cap = cv2.VideoCapture(target)
+            if not cap.isOpened():
+                cap.release()
+                continue
+
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = cap.get(cv2.CAP_PROP_FPS)
             fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
             fourcc = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
+
+            # Validate: try to grab a real frame (discard warmup frames)
+            valid = False
+            last_frame = None
+            for _ in range(WARMUP_FRAMES + 1):
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    last_frame = frame
+
             cap.release()
+
+        if last_frame is not None and not _is_solid_color_frame(last_frame):
+            valid = True
+
+        if valid:
             cameras.append({
                 "device": path if platform.system() == "Linux" else int(path),
                 "width": w,
@@ -84,34 +147,46 @@ def _detect_video_devices() -> list[dict[str, Any]]:
                 "fps": round(fps, 1),
                 "fourcc": fourcc,
             })
+
     return cameras
 
 
 def _capture_snapshot_jpeg(device: str, quality: int = 80) -> bytes:
-    """Open a camera, grab one frame, return JPEG bytes, then release."""
+    """
+    Open a camera, grab one stable frame, return JPEG bytes, then release.
+    Protected by _camera_lock to prevent concurrent camera opens.
+    """
     # Check cache first
     now = time.time()
     cached = _snapshot_cache.get(device)
     if cached and (now - cached[0]) < CACHE_TTL:
         return cached[1]
 
-    cap = cv2.VideoCapture(device)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open {device}")
+    with _camera_lock:
+        cap = cv2.VideoCapture(device)
+        if not cap.isOpened():
+            cap.release()
+            raise RuntimeError(f"Cannot open {device}")
 
-    try:
-        # Read a few frames to let auto-exposure settle
-        for _ in range(3):
-            ret, frame = cap.read()
-        if not ret or frame is None:
-            raise RuntimeError(f"Failed to read frame from {device}")
+        try:
+            # Discard warmup frames for auto-exposure
+            ret, frame = False, None
+            for _ in range(WARMUP_FRAMES + 1):
+                ret, frame = cap.read()
 
-        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
-        jpeg_bytes = buf.tobytes()
-        _snapshot_cache[device] = (now, jpeg_bytes)
-        return jpeg_bytes
-    finally:
-        cap.release()
+            if not ret or frame is None:
+                raise RuntimeError(f"Failed to read frame from {device}")
+
+            if _is_solid_color_frame(frame):
+                raise RuntimeError(f"Device {device} returned a solid-color (unusable) frame")
+
+            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+            jpeg_bytes = buf.tobytes()
+        finally:
+            cap.release()
+
+    _snapshot_cache[device] = (time.time(), jpeg_bytes)
+    return jpeg_bytes
 
 
 def _detect_serial_ports() -> list[dict[str, str]]:
@@ -139,13 +214,10 @@ def _read_current_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         return {}
     content = CONFIG_PATH.read_text()
-    # Extract the cameras string
     m = re.search(r'"cameras"\s*:\s*"([^"]*)"', content)
     cameras_str = m.group(1) if m else ""
-    # Extract robot_port
     m2 = re.search(r'"robot_port"\s*:\s*"([^"]*)"', content)
     robot_port = m2.group(1) if m2 else ""
-    # Parse cameras into dict
     camera_map = {}
     if cameras_str:
         for pair in cameras_str.split(","):
@@ -167,14 +239,12 @@ def _save_config(cameras_str: str, robot_port: str | None = None) -> None:
 
     content = CONFIG_PATH.read_text()
 
-    # Replace cameras value
     content = re.sub(
         r'("cameras"\s*:\s*)"([^"]*)"',
         f'\\1"{cameras_str}"',
         content,
     )
 
-    # Optionally replace robot_port
     if robot_port:
         content = re.sub(
             r'("robot_port"\s*:\s*)"([^"]*)"',
@@ -188,7 +258,7 @@ def _save_config(cameras_str: str, robot_port: str | None = None) -> None:
 # ── API Models ─────────────────────────────────────────────────────────────
 
 class CameraAssignment(BaseModel):
-    role: str  # "front" or "wrist"
+    role: str    # "front" or "wrist"
     device: str  # e.g. "/dev/video4"
 
 
@@ -201,18 +271,21 @@ class SaveConfigRequest(BaseModel):
 
 @app.get("/api/preflight/detect-cameras")
 async def detect_cameras():
-    """Detect all available video devices and return their metadata."""
+    """
+    Detect all usable video capture devices.
+    - Filters to even-numbered /dev/video* (skips metadata/control nodes)
+    - Validates each device returns a real non-solid-color frame
+    """
     loop = asyncio.get_event_loop()
     cameras = await loop.run_in_executor(None, _detect_video_devices)
-    return {"cameras": cameras}
+    return {"cameras": cameras, "count": len(cameras)}
 
 
 @app.get("/api/preflight/snapshot/{device_path:path}")
 async def get_snapshot(device_path: str):
     """
     Capture a snapshot from a specific video device.
-    device_path should be like: dev/video4 (without leading /)
-    The leading / is added back.
+    device_path is the path without leading /  e.g. "dev/video4"
     """
     device = f"/{device_path}"
     if not os.path.exists(device):
@@ -237,7 +310,7 @@ async def detect_ports():
 
 @app.get("/api/preflight/current-config")
 async def get_current_config():
-    """Return the current camera and port configuration."""
+    """Return the current camera and port configuration from config.py."""
     config = _read_current_config()
     return {"config": config}
 
@@ -246,12 +319,7 @@ async def get_current_config():
 async def save_config(req: SaveConfigRequest):
     """
     Save camera assignments and robot port to config.py.
-    
-    Expects:
-      cameras: [{"role": "front", "device": "/dev/video4"}, ...]
-      robot_port: "/dev/ttyACM0" (optional)
     """
-    # Build cameras string: "front:/dev/video4,wrist:/dev/video6"
     parts = [f"{c.role}:{c.device}" for c in req.cameras]
     cameras_str = ",".join(parts)
 

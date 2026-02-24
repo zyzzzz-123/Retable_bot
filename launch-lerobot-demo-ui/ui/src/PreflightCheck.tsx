@@ -36,19 +36,25 @@ type Step = 'detect' | 'assign' | 'confirm'
    Camera Snapshot Component
    ================================================================ */
 
+const SNAPSHOT_INTERVAL_MS = 2500  // slower poll — camera lock means sequential access
+
 const CameraSnapshot: FC<{
   device: string
   role: string
   onRoleChange: (device: string, role: string) => void
   allAssignments: CameraAssignment[]
-}> = ({ device, role, onRoleChange, allAssignments }) => {
+  index: number   // stagger index so cameras don't all poll at the same time
+}> = ({ device, role, onRoleChange, allAssignments, index }) => {
   const imgRef = useRef<HTMLImageElement>(null)
   const [hasFrame, setHasFrame] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [errorMsg, setErrorMsg] = useState('')
 
-  // Auto-refresh snapshot
+  // Auto-refresh snapshot — staggered by index to prevent simultaneous requests
   useEffect(() => {
     let cancelled = false
+    let timerId: ReturnType<typeof setTimeout> | null = null
+
     const refresh = () => {
       if (cancelled || !imgRef.current) return
       const loader = new Image()
@@ -57,19 +63,29 @@ const CameraSnapshot: FC<{
           imgRef.current.src = loader.src
           setHasFrame(true)
           setLoading(false)
+          setErrorMsg('')
         }
+        // Schedule next refresh after load completes
+        if (!cancelled) timerId = setTimeout(refresh, SNAPSHOT_INTERVAL_MS)
       }
       loader.onerror = () => {
-        if (!cancelled) { setHasFrame(false); setLoading(false) }
+        if (!cancelled) {
+          setHasFrame(false)
+          setLoading(false)
+          setErrorMsg('No signal')
+        }
+        // Retry slower on error
+        if (!cancelled) timerId = setTimeout(refresh, SNAPSHOT_INTERVAL_MS * 2)
       }
       // Strip leading / from device path for URL
       const devPath = device.startsWith('/') ? device.slice(1) : device
       loader.src = `/api/preflight/snapshot/${devPath}?t=${Date.now()}`
     }
-    refresh()
-    const id = setInterval(refresh, 800) // refresh every 800ms
-    return () => { cancelled = true; clearInterval(id) }
-  }, [device])
+
+    // Stagger start: each camera waits (index × 600ms) before first poll
+    timerId = setTimeout(refresh, index * 600)
+    return () => { cancelled = true; if (timerId) clearTimeout(timerId) }
+  }, [device, index])
 
   // Check if roles are already taken by other devices
   const frontTaken = allAssignments.some(a => a.role === 'front' && a.device !== device)
@@ -422,7 +438,7 @@ export default function PreflightCheck({ onComplete }: PreflightCheckProps) {
 
             {/* Camera grid */}
             <div className={`w-full grid gap-4 md:gap-6 ${cameras.length === 1 ? 'grid-cols-1 max-w-lg mx-auto' : cameras.length <= 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'}`}>
-              {cameras.map(cam => {
+              {cameras.map((cam, idx) => {
                 const assignment = assignments.find(a => a.device === cam.device)
                 return (
                   <CameraSnapshot
@@ -431,6 +447,7 @@ export default function PreflightCheck({ onComplete }: PreflightCheckProps) {
                     role={assignment?.role || ''}
                     onRoleChange={handleRoleChange}
                     allAssignments={assignments}
+                    index={idx}
                   />
                 )
               })}
