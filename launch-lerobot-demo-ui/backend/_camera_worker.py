@@ -24,14 +24,14 @@ import sys
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import cv2
-import numpy as np
 
-_CV2_BACKEND = cv2.CAP_V4L2 if hasattr(cv2, "CAP_V4L2") else cv2.CAP_ANY
-WARMUP_FRAMES = 5
-SOLID_COLOR_THRESHOLD = 0.97
+# NOTE: We use CAP_ANY (not CAP_V4L2) — V4L2 backend can cause green tint
+# on some cameras due to incorrect YUYV→BGR conversion.
+# CUDA safety is already ensured by CUDA_VISIBLE_DEVICES="" above.
+WARMUP_FRAMES = 2    # fewer warmup frames = faster snapshots
 
 
-def is_capture_device(path: str) -> bool:
+def _is_capture_device(path: str) -> bool:
     """Even-numbered /dev/video* = capture stream; odd = metadata (skip)."""
     try:
         num = int(re.search(r"\d+$", path).group())
@@ -40,66 +40,60 @@ def is_capture_device(path: str) -> bool:
         return True
 
 
-def is_solid_color_frame(frame) -> bool:
-    """Return True if frame is dominated by a single solid color (unusable)."""
-    if frame is None:
-        return True
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    median_val = float(np.median(gray))
-    within = np.sum(np.abs(gray.astype(float) - median_val) < 12)
-    fraction = within / gray.size
-    return fraction > SOLID_COLOR_THRESHOLD
+def _set_mjpeg(cap) -> None:
+    """Try to switch camera to MJPEG format — faster USB transfer, no color issues."""
+    mjpg = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+    cap.set(cv2.CAP_PROP_FOURCC, mjpg)
 
 
 def detect_cameras() -> list[dict]:
-    """Scan /dev/video* and return metadata for each usable camera."""
+    """
+    Scan /dev/video* and return metadata for each openable camera.
+    Fast: only checks isOpened() + reads metadata. No frame capture.
+    """
     cameras = []
     if platform.system() == "Linux":
         all_paths = sorted(glob.glob("/dev/video*"))
-        paths = [p for p in all_paths if is_capture_device(p)]
+        paths = [p for p in all_paths if _is_capture_device(p)]
     else:
         paths = [str(i) for i in range(20)]
 
     for path in paths:
         target = path if platform.system() == "Linux" else int(path)
-        cap = cv2.VideoCapture(target, _CV2_BACKEND)
+        cap = cv2.VideoCapture(target)
         if not cap.isOpened():
             cap.release()
             continue
 
+        _set_mjpeg(cap)
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS)
         fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
         fourcc = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
-
-        last_frame = None
-        for _ in range(WARMUP_FRAMES + 1):
-            ret, frame = cap.read()
-            if ret and frame is not None:
-                last_frame = frame
         cap.release()
 
-        if last_frame is not None and not is_solid_color_frame(last_frame):
-            cameras.append({
-                "device": path if platform.system() == "Linux" else int(path),
-                "width": w,
-                "height": h,
-                "fps": round(fps, 1),
-                "fourcc": fourcc,
-            })
+        cameras.append({
+            "device": path if platform.system() == "Linux" else int(path),
+            "width": w,
+            "height": h,
+            "fps": round(fps, 1),
+            "fourcc": fourcc,
+        })
 
     return cameras
 
 
 def capture_snapshot(device: str, quality: int = 80) -> bytes:
     """Open camera, grab one stable frame, return JPEG bytes."""
-    cap = cv2.VideoCapture(device, _CV2_BACKEND)
+    cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         cap.release()
         raise RuntimeError(f"Cannot open {device}")
 
     try:
+        _set_mjpeg(cap)
+
         ret, frame = False, None
         for _ in range(WARMUP_FRAMES + 1):
             ret, frame = cap.read()
@@ -122,7 +116,6 @@ if __name__ == "__main__":
 
     if command == "detect":
         cameras = detect_cameras()
-        # Write JSON to stdout
         json.dump(cameras, sys.stdout)
         sys.stdout.flush()
 
@@ -133,7 +126,6 @@ if __name__ == "__main__":
         device = sys.argv[2]
         try:
             jpeg_bytes = capture_snapshot(device)
-            # Write raw JPEG bytes to stdout (binary mode)
             sys.stdout.buffer.write(jpeg_bytes)
             sys.stdout.buffer.flush()
         except RuntimeError as e:

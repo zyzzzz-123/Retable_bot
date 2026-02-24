@@ -38,7 +38,7 @@ from pydantic import BaseModel
 # ── Constants ──────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "config.py"
 WORKER_SCRIPT = Path(__file__).parent / "_camera_worker.py"
-CACHE_TTL = 1.5          # seconds to cache a snapshot per device
+CACHE_TTL = 3.0          # seconds to cache a snapshot per device (subprocess = slower)
 DETECT_TIMEOUT = 60      # seconds to wait for camera detection
 
 # ── Snapshot cache ─────────────────────────────────────────────────────────
