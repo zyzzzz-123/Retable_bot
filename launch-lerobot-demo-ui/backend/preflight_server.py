@@ -17,6 +17,8 @@ import glob
 import os
 import platform
 import re
+import signal
+import subprocess
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -336,6 +338,51 @@ async def save_config(req: SaveConfigRequest):
     }
 
 
+@app.post("/api/preflight/launch-control")
+async def launch_control():
+    """
+    Switch from preflight mode to main robot control mode.
+    1. Spawns main_robot:app uvicorn process in background (detached)
+    2. Schedules self-termination of this preflight server after 1.5s
+       (enough time to send the response back to the browser)
+    The frontend should poll /api/health until main_robot responds.
+    """
+    backend_dir = Path(__file__).parent
+    conda_sh = os.path.expanduser("~/miniconda3/etc/profile.d/conda.sh")
+
+    # Build the shell command to restart as main_robot
+    cmd = (
+        f"source {conda_sh} && conda activate lerobot && "
+        f"sleep 2 && "
+        f"cd {backend_dir} && "
+        f"exec uvicorn main_robot:app --host 0.0.0.0 --port 8000"
+    )
+
+    # Launch as a completely detached process so it survives after preflight dies
+    subprocess.Popen(
+        ["bash", "-c", cmd],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,   # detach from current process group
+    )
+
+    # Schedule self-termination after 1.5s (response will have been sent by then)
+    async def self_terminate():
+        await asyncio.sleep(1.5)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(self_terminate())
+
+    return {"status": "ok", "message": "Switching to control mode — please wait ~30s for warmup"}
+
+
 @app.get("/api/preflight/health")
 async def health():
+    return {"status": "ok", "service": "preflight"}
+
+
+@app.get("/api/health")
+async def health_generic():
+    """Generic health check — used by frontend to detect when main_robot is up."""
     return {"status": "ok", "service": "preflight"}

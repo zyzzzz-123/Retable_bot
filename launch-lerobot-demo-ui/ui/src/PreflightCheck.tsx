@@ -237,6 +237,8 @@ export default function PreflightCheck({ onComplete }: PreflightCheckProps) {
   const [detecting, setDetecting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [launching, setLaunching] = useState(false)
+  const [launchStatus, setLaunchStatus] = useState('')
   const [error, setError] = useState('')
 
   /* ── Load current config on mount ── */
@@ -620,22 +622,66 @@ export default function PreflightCheck({ onComplete }: PreflightCheckProps) {
               )}
             </div>
 
-            <div className="w-full flex gap-4">
-              <button
-                onClick={() => { setSaved(false); setStep('assign') }}
-                className="flex-1 py-4 rounded-2xl text-base font-bold bg-gray-700 hover:bg-gray-600 transition-colors duration-200"
-              >
-                🔄 Reconfigure
-              </button>
-              <button
-                onClick={onComplete}
-                className="flex-1 py-5 rounded-2xl text-lg font-bold bg-gradient-to-r from-blue-600 to-blue-500
-                           hover:from-blue-500 hover:to-blue-400 shadow-xl shadow-blue-500/25
-                           transition-all duration-200"
-              >
-                🚀 Launch Control UI
-              </button>
-            </div>
+            {/* Launching state — polls until main_robot is up, then reloads */}
+            {launching ? (
+              <div className="w-full bg-gray-800/60 rounded-2xl p-8 flex flex-col items-center gap-5">
+                <div className="w-16 h-16 border-4 border-gray-700 border-t-blue-400 rounded-full animate-spin" />
+                <p className="text-blue-300 font-semibold text-lg">{launchStatus || 'Starting robot control backend…'}</p>
+                <p className="text-gray-500 text-sm text-center">
+                  This page will reload automatically once the robot control server is ready (~30s).
+                </p>
+              </div>
+            ) : (
+              <div className="w-full flex gap-4">
+                <button
+                  onClick={() => { setSaved(false); setStep('assign') }}
+                  className="flex-1 py-4 rounded-2xl text-base font-bold bg-gray-700 hover:bg-gray-600 transition-colors duration-200"
+                >
+                  🔄 Reconfigure
+                </button>
+                <button
+                  onClick={async () => {
+                    setLaunching(true)
+                    setLaunchStatus('Stopping preflight server…')
+                    try {
+                      // Ask preflight server to switch to main_robot
+                      await fetch('/api/preflight/launch-control', { method: 'POST' })
+                    } catch {
+                      // Expected — preflight server will shut down mid-request
+                    }
+                    // Poll /api/config (main_robot endpoint) until it responds
+                    setLaunchStatus('Waiting for robot control server to start…')
+                    let attempts = 0
+                    const maxAttempts = 60   // 60 × 1s = 60s timeout
+                    const pollTimer = setInterval(async () => {
+                      attempts++
+                      try {
+                        const res = await fetch('/api/config', { signal: AbortSignal.timeout(2000) })
+                        if (res.ok) {
+                          clearInterval(pollTimer)
+                          setLaunchStatus('Robot control server ready! Reloading…')
+                          setTimeout(() => window.location.reload(), 800)
+                          return
+                        }
+                      } catch { /* still starting */ }
+                      if (attempts >= maxAttempts) {
+                        clearInterval(pollTimer)
+                        setLaunching(false)
+                        setLaunchStatus('')
+                        alert('Timed out waiting for control server.\nRun manually:\nbash start.sh stop && bash start.sh')
+                      } else {
+                        setLaunchStatus(`Waiting for robot control server… (${attempts}s)`)
+                      }
+                    }, 1000)
+                  }}
+                  className="flex-1 py-5 rounded-2xl text-lg font-bold bg-gradient-to-r from-blue-600 to-blue-500
+                             hover:from-blue-500 hover:to-blue-400 shadow-xl shadow-blue-500/25
+                             transition-all duration-200"
+                >
+                  🚀 Launch Control UI
+                </button>
+              </div>
+            )}
           </div>
         )}
 
