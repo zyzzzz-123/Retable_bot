@@ -10,7 +10,7 @@ export HF_USER=FrankYuzhe
 
 # 生成带时间戳的数据集名称
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-DATASET_NAME="${HF_USER}/record_${TIMESTAMP}"
+DATASET_NAME="${HF_USER}/lemon_box_05_${TIMESTAMP}"
 
 echo "===================="
 echo "录制数据集脚本"
@@ -19,13 +19,14 @@ echo "===================="
 
 lerobot-record \
     --robot.type=so101_follower \
-    --robot.port=/dev/ttyACM0 \
+    --robot.port=/dev/ttyACM1 \
     --robot.id=follower_hope \
-    --robot.cameras="{  side: {type: opencv, index_or_path: 8, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 10, width: 640, height: 480, fps: 30}}" \
+    --robot.cameras="{  front: {type: opencv, index_or_path: 4, width: 640, height: 480, fps: 30}, wrist: {type: opencv, index_or_path: 6, width: 640, height: 480, fps: 30}}" \
     --teleop.type=so101_leader \
-    --teleop.port=/dev/ttyACM1 \
+    --teleop.port=/dev/ttyACM0 \
     --teleop.id=leader_oo \
     --display_data=true \
     --dataset.repo_id=${DATASET_NAME} \
-    --dataset.num_episodes=20\
-    --dataset.single_task="Put the cube on the orange plate"
+    --dataset.fps=30 \
+    --dataset.num_episodes=20 \
+    --dataset.single_task="Put the lemon into the box"

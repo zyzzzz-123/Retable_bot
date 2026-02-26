@@ -40,6 +40,7 @@ CONFIG_PATH = Path(__file__).parent / "config.py"
 WORKER_SCRIPT = Path(__file__).parent / "_camera_worker.py"
 CACHE_TTL = 3.0          # seconds to cache a snapshot per device (subprocess = slower)
 DETECT_TIMEOUT = 60      # seconds to wait for camera detection
+SNAPSHOT_TIMEOUT = 30    # seconds to wait for camera snapshot (increased from 15)
 
 # ── Snapshot cache ─────────────────────────────────────────────────────────
 _snapshot_cache: dict[str, tuple[float, bytes]] = {}
@@ -93,12 +94,16 @@ def _worker_capture_snapshot(device: str) -> bytes:
     if cached and (now - cached[0]) < CACHE_TTL:
         return cached[1]
 
-    result = subprocess.run(
-        [sys.executable, str(WORKER_SCRIPT), "snapshot", device],
-        capture_output=True,
-        timeout=15,
-        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(WORKER_SCRIPT), "snapshot", device],
+            capture_output=True,
+            timeout=SNAPSHOT_TIMEOUT,
+            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"Snapshot timeout for {device} after {SNAPSHOT_TIMEOUT}s. Camera may be busy or unavailable.")
+    
     if result.returncode != 0:
         stderr = result.stderr.decode(errors="replace").strip()
         raise RuntimeError(f"Snapshot failed for {device}: {stderr}")
@@ -220,7 +225,13 @@ async def get_snapshot(device_path: str):
     try:
         jpeg_bytes = await loop.run_in_executor(None, _worker_capture_snapshot, device)
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        # 如果是超时错误，返回408状态码
+        if "timeout" in error_msg.lower():
+            raise HTTPException(status_code=408, detail=error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
     return Response(content=jpeg_bytes, media_type="image/jpeg")
 
