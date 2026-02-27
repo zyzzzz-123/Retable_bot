@@ -1,0 +1,84 @@
+{
+  "positions": [
+    {
+      "values": {
+        "shoulder_pan": -32.35509904622157,
+        "shoulder_lift": 9.167015487651724,
+        "elbow_flex": -14.43850267379679,
+        "wrist_flex": 63.745019920318725,
+        "wrist_roll": -1.6849816849816932,
+        "gripper": 3.5143769968051117
+      },
+      "name": "p1",
+      "index": 1
+    },
+    {
+      "values": {
+        "shoulder_pan": -32.281731474688186,
+        "shoulder_lift": 24.403516115529513,
+        "elbow_flex": -14.43850267379679,
+        "wrist_flex": 63.585657370517936,
+        "wrist_roll": -1.6849816849816932,
+        "gripper": 3.5143769968051117
+      },
+      "name": "p2",
+      "index": 2
+    },
+    {
+      "values": {
+        "shoulder_pan": -31.54805575935437,
+        "shoulder_lift": 35.11929677689409,
+        "elbow_flex": -22.727272727272734,
+        "wrist_flex": 61.832669322709165,
+        "wrist_roll": -1.6849816849816932,
+        "gripper": 27.3482428115016
+      },
+      "name": "p3",
+      "index": 3
+    },
+    {
+      "values": {
+        "shoulder_pan": -33.38224504768891,
+        "shoulder_lift": 35.9564671410632,
+        "elbow_flex": -22.727272727272734,
+        "wrist_flex": 61.75298804780874,
+        "wrist_roll": -1.6849816849816932,
+        "gripper": 50.287539936102235
+      },
+      "name": "p4",
+      "index": 4
+    },
+    {
+      "values": {
+        "shoulder_pan": -37.05062362435804,
+        "shoulder_lift": 14.190037672666378,
+        "elbow_flex": -18.894830659536538,
+        "wrist_flex": 61.673306772908376,
+        "wrist_roll": -1.6849816849816932,
+        "gripper": 50.159744408945684
+      },
+      "name": "p5",
+      "index": 5
+    },
+    {
+      "values": {
+        "shoulder_pan": -1.6140865737344114,
+        "shoulder_lift": -70.11301799916282,
+        "elbow_flex": 46.4349376114082,
+        "wrist_flex": 78.08764940239044,
+        "wrist_roll": -1.6849816849816932,
+        "gripper": 50.22364217252397
+      },
+      "name": "p6",
+      "index": 6
+    }
+  ],
+  "joint_names": [
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll",
+    "gripper"
+  ]
+}
