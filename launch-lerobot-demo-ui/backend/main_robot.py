@@ -81,8 +81,8 @@ def _process_grid_frame(path: str) -> bytes:
 
     height, width = frame.shape[:2]
     # Crop: horizontal 5%-55%, vertical 30%-85%
-    x_start, x_end = int(width * 0.05), int(width * 0.55)
-    y_start, y_end = int(height * 0.30), int(height * 0.85)
+    x_start, x_end = int(width * 0.10), int(width * 0.60)
+    y_start, y_end = int(height * 0.25), int(height * 0.8)
     cropped = frame[y_start:y_end, x_start:x_end]
 
     h, w = cropped.shape[:2]

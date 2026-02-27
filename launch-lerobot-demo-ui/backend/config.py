@@ -15,10 +15,10 @@ FRAME_DIR = "/tmp/lerobot_frames"
 
 # ── Configuration (identical to eval_act_andy_tube.sh) ──
 ROBOT_CONFIG = {
-    "model": "FrankYuzhe/act_lemon_box_0226_merged_40_0226_140554",
-    "robot_port": "/dev/ttyACM1",
+    "model": "FrankYuzhe/act_tissue_box_0226_merged_80_0226_221249",
+    "robot_port": "/dev/ttyACM0",
     "robot_id": "follower_hope",
-    "cameras": "wrist:/dev/video0,front:/dev/video6",
+    "cameras": "front:/dev/video4,wrist:/dev/video6",
     "fps": 30,
     "episode_time": 200,
     "num_episodes": 10,

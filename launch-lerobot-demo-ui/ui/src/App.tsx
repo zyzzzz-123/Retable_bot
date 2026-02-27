@@ -662,8 +662,8 @@ function App() {
           <h3 className="text-sm uppercase tracking-wider text-gray-500 font-medium text-center">
             Position Control
           </h3>
-          <GridCameraFeed active={!isWarmup && state !== 'ERROR'} />
           <PointMover enabled={canMoveToPoint} toast={toast} />
+          <GridCameraFeed active={!isWarmup && state !== 'ERROR'} />
         </div>
 
       </main>
