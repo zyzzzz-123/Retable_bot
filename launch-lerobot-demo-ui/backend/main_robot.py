@@ -28,7 +28,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from config import (build_inference_command, ROBOT_CONFIG, CONTROL_FILE, LEROBOT_DIR, FRAME_DIR,
-                     HAND_DETECT_ENABLED, POINTS_CSV, ROS2_SETUP, ROS2_WS_SETUP)
+                     HAND_DETECT_ENABLED, POINTS_CSV)
 
 app = FastAPI(title="LeRobot SO101 Control Backend")
 
@@ -108,7 +108,7 @@ def _process_grid_frame(path: str) -> bytes:
     return buf.tobytes()
 
 
-# Arm-move concurrency guard
+# Arm-move state (tracks whether we're waiting for a GOTO to complete)
 _arm_moving = False
 
 # ==================== State Management ====================
@@ -209,6 +209,18 @@ def parse_output(line: str) -> dict:
         return {"state": "WORKING", "step": "Running", "message": "Inference started!", "progress": 0}
     if "inference_done" in lo:
         return {"_signal": "INFERENCE_DONE"}
+
+    # ── GOTO point signals ──
+    if "goto_started:" in lo:
+        import re
+        m = re.search(r"goto_started:(\S+)", lo)
+        idx = m.group(1) if m else "?"
+        return {"state": "HOMED", "step": f"Moving to {idx}", "message": f"Moving to position {idx}..."}
+    if "goto_done:" in lo:
+        import re
+        m = re.search(r"goto_done:(\S+)", lo)
+        idx = m.group(1) if m else "?"
+        return {"state": "HOMED", "step": "Position reached", "message": f"At position {idx}, paused"}
 
     # ── Hand safety detection ──
     if "hand_detect_on" in lo:
@@ -595,13 +607,12 @@ async def api_points():
 async def api_move_to_point(req: MoveToPointRequest):
     """Move the robot arm to a pre-defined joint position from point.csv.
 
-    Uses a separate ROS2 subprocess (with ros2 env sourced) so it works
-    independently of eval_act_safe.py.
+    Sends a GOTO:N command via the control file (same mechanism as HOME).
+    eval_act_safe.py converts the ROS2 radian positions to lerobot space
+    and smoothly interpolates to the target.
     """
-    global _arm_moving
-
-    if _arm_moving:
-        return {"status": "error", "message": "Arm is already moving"}
+    if robot.process is None:
+        return {"status": "error", "message": "Process not running"}
 
     if not POINTS:
         return {"status": "error", "message": "No points loaded from CSV"}
@@ -610,47 +621,12 @@ async def api_move_to_point(req: MoveToPointRequest):
         return {"status": "error", "message": f"Invalid point {req.point}. Range: 1-{len(POINTS)}"}
 
     # Block movement during active inference or warmup
-    if robot.state in ("WORKING", "WARMUP"):
-        return {"status": "error", "message": f"Cannot move arm while state is {robot.state}"}
+    if robot.state == "WARMUP":
+        return {"status": "error", "message": "Still warming up. Please wait."}
 
-    positions = POINTS[req.point - 1]
-    params = json.dumps({
-        "joint_names": JOINT_NAMES,
-        "positions": positions,
-        "move_time": 0.7,
-    })
-
-    arm_mover = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_arm_mover.py")
-    cmd = f'source {ROS2_SETUP} && source {ROS2_WS_SETUP} && python "{arm_mover}" \'{params}\''
-
-    _arm_moving = True
-    robot.log_event("MOVE_TO_POINT", {"point": req.point, "positions": positions})
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            executable="/bin/bash",
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
-        output = stdout.decode("utf-8", errors="replace").strip()
-
-        # Parse the last JSON line from output
-        for line in reversed(output.split("\n")):
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    return json.loads(line)
-                except json.JSONDecodeError:
-                    pass
-
-        return {"status": "error", "message": f"Unexpected output: {output[:200]}"}
-    except asyncio.TimeoutError:
-        return {"status": "error", "message": "Movement timed out (15s)"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)[:200]}
-    finally:
-        _arm_moving = False
+    send_control_command(f"GOTO:{req.point}")
+    robot.log_event("CMD_GOTO_POINT", {"point": req.point})
+    return {"status": "ok", "message": f"Moving to position {req.point}..."}
 
 
 # ==================== WebSocket ====================

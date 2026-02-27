@@ -246,7 +246,7 @@ const PointMover: FC<{ enabled: boolean; toast: (msg: string, type: 'success' | 
       const data = await r.json()
       setLastResult(data)
       if (data.status === 'ok') {
-        showToast(`Moved to position ${target}`, 'success')
+        showToast(`Moving to position ${target}…`, 'info')
       } else {
         showToast(data.message || 'Move failed', 'error')
       }
@@ -254,7 +254,8 @@ const PointMover: FC<{ enabled: boolean; toast: (msg: string, type: 'success' | 
       setLastResult({ status: 'error', message: 'Network error' })
       showToast('Move failed: network error', 'error')
     } finally {
-      setMoving(false)
+      // Command sent — actual movement tracked via WebSocket state
+      setTimeout(() => setMoving(false), 500)
     }
   }
 
@@ -445,7 +446,7 @@ function App() {
   const isRunning  = state === 'WORKING'
   const isPaused   = state === 'PAUSED' || state === 'HOMED'
   const hasProcess = isRunning || isPaused
-  const canMoveToPoint = state === 'READY' || state === 'HOMED' || state === 'DONE' || state === 'PAUSED'
+  const canMoveToPoint = state === 'READY' || state === 'HOMED' || state === 'DONE' || state === 'PAUSED' || state === 'WORKING'
 
   /* ================================================================
      Render

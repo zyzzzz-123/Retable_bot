@@ -18,7 +18,7 @@ ROBOT_CONFIG = {
     "model": "FrankYuzhe/act_lemon_box_0226_merged_40_0226_140554",
     "robot_port": "/dev/ttyACM1",
     "robot_id": "follower_hope",
-    "cameras": "front:/dev/video4,wrist:/dev/video6",
+    "cameras": "wrist:/dev/video0,front:/dev/video6",
     "fps": 30,
     "episode_time": 200,
     "num_episodes": 10,
@@ -35,12 +35,8 @@ HAND_DETECT_COOLDOWN = 8          # Consecutive no-hand frames before auto-resum
 # Path to the lerobot repo (where eval_act_safe.py lives)
 LEROBOT_DIR = os.path.expanduser("~/lerobot")
 
-# ── Points CSV — joint positions for 16-grid prepositions ──
+# ── Points CSV — joint positions for 16-grid prepositions (ROS2 radians) ──
 POINTS_CSV = os.path.join(LEROBOT_DIR, "point.csv")
-
-# ── ROS2 Environment Setup ──
-ROS2_SETUP = "/opt/ros/humble/setup.bash"
-ROS2_WS_SETUP = os.path.expanduser("~/ros2_ws/install/setup.bash")
 
 
 def build_inference_command(task: str = None) -> list[str]:
@@ -69,4 +65,7 @@ def build_inference_command(task: str = None) -> list[str]:
             "--hand-detect-interval", str(HAND_DETECT_INTERVAL),
             "--hand-detect-cooldown", str(HAND_DETECT_COOLDOWN),
         ])
+    # GOTO points (prepositions)
+    if os.path.exists(POINTS_CSV):
+        cmd.extend(["--points-csv", POINTS_CSV])
     return cmd

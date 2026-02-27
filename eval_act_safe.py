@@ -34,6 +34,7 @@ Usage:
 """
 
 import argparse
+import csv
 import json
 import logging
 import os
@@ -219,6 +220,71 @@ def save_camera_frames(frame_dir: str, camera_names: list, obs: dict = None, rob
             pass
 
 
+# ── GOTO point support: convert ROS2 radians → lerobot normalized ──
+
+# ROS2 hardware interface params (from so101.ros2_control.hardware.xacro)
+_ROS2_SCALE = 0.00153398   # radians per servo step
+_ROS2_OFFSET = 2048.0      # raw servo midpoint
+
+# point.csv column name → lerobot motor name
+_CSV_TO_MOTOR = {
+    "Rotation": "shoulder_pan",
+    "Pitch": "shoulder_lift",
+    "Elbow": "elbow_flex",
+    "Wrist_Pitch": "wrist_flex",
+    "Wrist_Roll": "wrist_roll",
+    "Jaw": "gripper",
+}
+
+
+def _load_goto_points(csv_path: str):
+    """Load joint positions from point.csv (header row + N data rows in radians)."""
+    points, joint_names = [], []
+    if not csv_path or not os.path.exists(csv_path):
+        return points, joint_names
+    try:
+        with open(csv_path, "r") as f:
+            reader = csv.reader(f)
+            for i, row in enumerate(reader):
+                if i == 0:
+                    joint_names = [c.strip() for c in row]
+                else:
+                    if row and any(c.strip() for c in row):
+                        points.append([float(x) for x in row])
+    except Exception as e:
+        logger.error(f"Failed to load GOTO points from {csv_path}: {e}")
+    return points, joint_names
+
+
+def _radians_to_lerobot(radians_vals, csv_names, robot):
+    """Convert ROS2 radian positions (from point.csv) to a lerobot normalized position dict.
+
+    The conversion chain is:
+        radians  →  raw servo value  →  lerobot normalized [-100..100] or [0..100]
+    """
+    from lerobot.motors import MotorNormMode
+
+    target = {}
+    for rad, cname in zip(radians_vals, csv_names):
+        motor = _CSV_TO_MOTOR.get(cname.strip())
+        if motor is None:
+            continue
+        # Radians → raw servo value (same formula the ROS2 hardware interface uses)
+        raw = rad / _ROS2_SCALE + _ROS2_OFFSET
+        # Raw → lerobot normalized (same logic as MotorsBus._normalize)
+        cal = robot.bus.calibration[motor]
+        bounded = min(cal.range_max, max(cal.range_min, int(round(raw))))
+        m = robot.bus.motors[motor]
+        dm = robot.bus.apply_drive_mode and cal.drive_mode
+        if m.norm_mode is MotorNormMode.RANGE_M100_100:
+            n = (((bounded - cal.range_min) / (cal.range_max - cal.range_min)) * 200) - 100
+            target[f"{motor}.pos"] = -n if dm else n
+        elif m.norm_mode is MotorNormMode.RANGE_0_100:
+            n = ((bounded - cal.range_min) / (cal.range_max - cal.range_min)) * 100
+            target[f"{motor}.pos"] = (100 - n) if dm else n
+    return target
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="ACT policy evaluation with safety features")
 
@@ -287,6 +353,12 @@ def parse_args():
         help="Consecutive no-hand frames before auto-resume (default: 8 = ~2s)",
     )
 
+    # GOTO points (prepositions in ROS2 radians)
+    parser.add_argument(
+        "--points-csv", type=str, default="",
+        help="Path to point.csv with joint positions in ROS2 radians for GOTO:N commands",
+    )
+
     return parser.parse_args()
 
 
@@ -317,6 +389,15 @@ def check_control_file(control_file: str, events: dict, hand_detector: "HandDete
     elif cmd == "HOME":
         events["go_to_rest"] = True
         events["exit_early"] = True
+    elif cmd.startswith("GOTO:"):
+        # GOTO:N — move arm to point N from points CSV, then pause
+        try:
+            point_idx = int(cmd.split(":")[1])
+            events["go_to_rest"] = True
+            events["exit_early"] = True
+            events["_goto_point_idx"] = point_idx
+        except (ValueError, IndexError):
+            logger.error(f"Invalid GOTO command: {cmd}")
     elif cmd == "QUIT":
         events["stop_recording"] = True
         events["exit_early"] = True
@@ -340,15 +421,22 @@ def check_control_file(control_file: str, events: dict, hand_detector: "HandDete
 
 def wait_for_command(control_file: str, events: dict, target_cmd: str = "START",
                      robot=None, frame_dir: str = "", camera_names: list = None,
-                     hand_detector: "HandDetector | None" = None) -> str:
+                     hand_detector: "HandDetector | None" = None,
+                     goto_points: list = None, goto_joint_names: list = None) -> str:
     """Block until a specific command (or QUIT) arrives via control file or keyboard.
 
     While waiting, captures camera frames for UI display (~5 fps).
+    Also handles GOTO:N commands (move arm to preposition, then continue waiting).
     Returns the command received ("START" or "QUIT").
     """
+    if goto_points is None:
+        goto_points = []
+    if goto_joint_names is None:
+        goto_joint_names = []
+
     _last_ft = 0.0
     while True:
-        # Check control file (including HAND_ON/OFF commands)
+        # Check control file (including HAND_ON/OFF and GOTO commands)
         cmd = read_control_command(control_file)
         if cmd == target_cmd:
             return cmd
@@ -362,6 +450,29 @@ def wait_for_command(control_file: str, events: dict, target_cmd: str = "START",
             hand_detector.enabled = False
             hand_detector.hand_detected = False
             print("HAND_DETECT_OFF", flush=True)
+        elif cmd == "HOME" and robot:
+            print("GOTO_STARTED:HOME", flush=True)
+            logger.info("Moving to HOME position while waiting...")
+            go_to_rest_position(robot, rest_position=robot.rest_position,
+                                fps=30, duration_s=2.0, events=events)
+            print("GOTO_DONE:HOME", flush=True)
+            logger.info("HOME reached (still waiting for START).")
+        elif cmd.startswith("GOTO:") and robot and goto_points:
+            try:
+                point_idx = int(cmd.split(":")[1])
+                if 1 <= point_idx <= len(goto_points):
+                    target = _radians_to_lerobot(goto_points[point_idx - 1],
+                                                  goto_joint_names, robot)
+                    print(f"GOTO_STARTED:{point_idx}", flush=True)
+                    logger.info(f"Moving to point {point_idx} while waiting...")
+                    go_to_rest_position(robot, rest_position=target,
+                                        fps=30, duration_s=2.0, events=events)
+                    print(f"GOTO_DONE:{point_idx}", flush=True)
+                    logger.info(f"Point {point_idx} reached (still waiting for START).")
+                else:
+                    logger.error(f"GOTO point {point_idx} out of range 1-{len(goto_points)}")
+            except (ValueError, IndexError) as e:
+                logger.error(f"Invalid GOTO command: {cmd}: {e}")
 
         # Check keyboard events (Esc → quit)
         if events.get("stop_recording"):
@@ -379,10 +490,15 @@ def wait_for_command(control_file: str, events: dict, target_cmd: str = "START",
 
 def run_episodes(args, model, preprocess, postprocess, robot, ds_features, device, events, max_steps,
                  frame_dir: str = "", camera_names: list = None,
-                 hand_detector: "HandDetector | None" = None):
+                 hand_detector: "HandDetector | None" = None,
+                 goto_points: list = None, goto_joint_names: list = None):
     """Run the inference episode loop. Returns True if should continue, False to quit."""
     if camera_names is None:
         camera_names = []
+    if goto_points is None:
+        goto_points = []
+    if goto_joint_names is None:
+        goto_joint_names = []
     for ep in range(args.num_episodes):
         print(f"\n{'─'*50}", flush=True)
         print(f"  Episode {ep + 1}/{args.num_episodes}", flush=True)
@@ -431,16 +547,26 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
                         break
 
                     if events.get("go_to_rest"):
+                        goto_idx = events.pop("_goto_point_idx", None)
+                        if goto_idx is not None and goto_points and 1 <= goto_idx <= len(goto_points):
+                            target_pos = _radians_to_lerobot(goto_points[goto_idx - 1], goto_joint_names, robot)
+                            label = f"📍 point {goto_idx}"
+                            print(f"GOTO_STARTED:{goto_idx}", flush=True)
+                        else:
+                            target_pos = robot.rest_position
+                            label = "🏠 rest"
                         events["go_to_rest"] = False
                         events["emergency_stop"] = False
                         events["auto_stopped"] = False
-                        print("🏠  Moving to rest position...", flush=True)
+                        print(f"  Moving to {label} position...", flush=True)
                         go_to_rest_position(
-                            robot, rest_position=robot.rest_position,
+                            robot, rest_position=target_pos,
                             fps=args.fps, duration_s=args.rest_duration, events=events,
                         )
                         model.reset()
-                        print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.", flush=True)
+                        if goto_idx is not None:
+                            print(f"GOTO_DONE:{goto_idx}", flush=True)
+                        print(f"  {label} reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.", flush=True)
                         events["emergency_stop"] = True
                         home_pos = robot.bus.sync_read("Present_Position")
                         while events.get("emergency_stop"):
@@ -463,17 +589,27 @@ def run_episodes(args, model, preprocess, postprocess, robot, ds_features, devic
                 print("▶️  Resumed. Continuing inference...", flush=True)
                 continue
 
-            # ── Go to rest / home, then PAUSE ──
+            # ── Go to rest / home / goto point, then PAUSE ──
             if events.get("go_to_rest"):
+                goto_idx = events.pop("_goto_point_idx", None)
+                if goto_idx is not None and goto_points and 1 <= goto_idx <= len(goto_points):
+                    target_pos = _radians_to_lerobot(goto_points[goto_idx - 1], goto_joint_names, robot)
+                    label = f"📍 point {goto_idx}"
+                    print(f"GOTO_STARTED:{goto_idx}", flush=True)
+                else:
+                    target_pos = robot.rest_position
+                    label = "🏠 rest"
                 events["go_to_rest"] = False
                 events["exit_early"] = False
-                print("🏠  Moving to rest position...", flush=True)
+                print(f"  Moving to {label} position...", flush=True)
                 go_to_rest_position(
-                    robot, rest_position=robot.rest_position,
+                    robot, rest_position=target_pos,
                     fps=args.fps, duration_s=args.rest_duration, events=events,
                 )
                 model.reset()
-                print("🏠  Home reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.", flush=True)
+                if goto_idx is not None:
+                    print(f"GOTO_DONE:{goto_idx}", flush=True)
+                print(f"  {label} reached. Inference PAUSED. Press [Enter] to resume, [Esc] to quit.", flush=True)
                 events["emergency_stop"] = True
                 home_pos = robot.bus.sync_read("Present_Position")
                 _last_ft2 = 0.0
@@ -562,6 +698,13 @@ def main():
     ds_features.update(hw_to_dataset_features(robot.action_features, ACTION, use_video=False))
     logger.info(f"Dataset features keys: {list(ds_features.keys())}")
 
+    # ── Phase 5: Load GOTO points (if configured) ──
+    goto_points, goto_joint_names = _load_goto_points(args.points_csv)
+    if goto_points:
+        logger.info(f"Loaded {len(goto_points)} GOTO points from {args.points_csv}")
+    elif args.points_csv:
+        logger.warning(f"No GOTO points loaded from {args.points_csv}")
+
     # ── Initialize keyboard listener ──
     listener, events = init_keyboard_listener()
     events["auto_stopped"] = False  # Track auto e-stop from hand detection
@@ -591,6 +734,8 @@ def main():
         print(f"  Hand  : ENABLED (camera={args.hand_detect_camera}, interval={args.hand_detect_interval}s, cooldown={args.hand_detect_cooldown})")
     else:
         print("  Hand  : DISABLED (use --hand-detect to enable)")
+    if goto_points:
+        print(f"  GOTO  : {len(goto_points)} points loaded from {args.points_csv}")
     print("-" * 60)
     print("  Keyboard shortcuts:")
     print("    [Space]  Emergency Stop (hold position, pause inference)")
@@ -617,7 +762,9 @@ def main():
                 cmd = wait_for_command(args.control_file, events, "START",
                                        robot=robot, frame_dir=args.frame_dir,
                                        camera_names=camera_names,
-                                       hand_detector=hand_detector)
+                                       hand_detector=hand_detector,
+                                       goto_points=goto_points,
+                                       goto_joint_names=goto_joint_names)
                 if cmd == "QUIT":
                     print("Quit received while waiting.", flush=True)
                     break
@@ -637,6 +784,7 @@ def main():
                     robot, ds_features, device, events, max_steps,
                     frame_dir=args.frame_dir, camera_names=camera_names,
                     hand_detector=hand_detector,
+                    goto_points=goto_points, goto_joint_names=goto_joint_names,
                 )
 
                 print("INFERENCE_DONE", flush=True)
@@ -652,6 +800,7 @@ def main():
                 robot, ds_features, device, events, max_steps,
                 frame_dir=args.frame_dir, camera_names=camera_names,
                 hand_detector=hand_detector,
+                goto_points=goto_points, goto_joint_names=goto_joint_names,
             )
 
     except KeyboardInterrupt:
