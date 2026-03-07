@@ -391,59 +391,62 @@ function App() {
             )}
           </div>
 
-          {/* ─── PROGRESS ─── */}
-          <div className="mb-4 flex-shrink-0">
-            <div className="flex items-baseline justify-between mb-2">
-              <span className="text-sm font-heading tracking-[0.4em] text-slate-600">{isWarmup ? 'LOADING' : 'PROGRESS'}</span>
-              <span className="font-heading text-3xl lg:text-4xl tracking-wider" style={{ color: meta.color }}>
-                {progress}<span className="text-lg text-slate-600">%</span>
-              </span>
-            </div>
-            <div className="h-4 bg-white/[0.03] rounded-sm overflow-hidden border border-white/[0.04]">
-              <div className={`h-full transition-all duration-700 ease-out relative ${
-                (isRunning || isWarmup) ? 'progress-glow' : ''
-              }`}
-                style={{
-                  width: `${progress}%`,
-                  background: `linear-gradient(90deg, ${meta.color}cc, ${meta.color})`,
-                  boxShadow: `0 0 20px ${meta.color}40`,
-                }}>
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent animate-shimmer" />
-              </div>
-            </div>
-          </div>
-
-          {/* ─── PIPELINE ─── */}
+          {/* ─── PIPELINE (with per-stage progress) ─── */}
           {pipelineTotal > 0 && (
-            <div className="flex items-center gap-3 mb-4 flex-shrink-0">
-              <span className="text-sm font-heading tracking-[0.3em] text-slate-600 flex-shrink-0">PIPELINE</span>
-              <div className="flex items-center gap-1.5 flex-1">
+            <div className="mb-4 flex-shrink-0">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-sm font-heading tracking-[0.3em] text-slate-600 flex-shrink-0">PIPELINE</span>
+                <div className="flex-1" />
+                {pipelineStatus && (
+                  <span className={`text-sm font-heading tracking-[0.2em] px-2.5 py-1 rounded border flex-shrink-0 ${
+                    pipelineStatus === 'inference' ? 'border-blue-500/30 text-blue-400' :
+                    pipelineStatus === 'waypoints' ? 'border-violet-500/30 text-violet-400' :
+                    'border-cyan-500/30 text-cyan-400'
+                  }`}>
+                    {pipelineStatus.toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-stretch gap-2">
                 {Array.from({ length: pipelineTotal }, (_, i) => {
                   const isActive = i === pipelineStageIdx && (isRunning || pipelineStatus !== '')
                   const isDone = i < pipelineStageIdx || state === 'DONE'
+                  const stageProgress = isActive ? progress : 0
                   return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                      <div className={`w-full h-1.5 rounded-full transition-all duration-500 ${
-                        isDone ? 'bg-[#d2ff00]' : isActive ? 'bg-[#00f0ff] progress-glow' : 'bg-white/[0.06]'
-                      }`} />
-                      <span className={`text-xs font-mono truncate max-w-full ${
-                        isDone ? 'text-[#d2ff00]/60' : isActive ? 'text-[#00f0ff]/60' : 'text-slate-800'
+                    <div key={i} className="flex-1 flex flex-col gap-1.5">
+                      {/* Stage bar with fill */}
+                      <div className={`w-full h-3 rounded-full overflow-hidden transition-all duration-500 ${
+                        isDone ? '' : 'bg-white/[0.06]'
                       }`}>
-                        {i === pipelineStageIdx && pipelineStage ? pipelineStage : ''}
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ease-out relative ${
+                            isActive ? 'progress-glow' : ''
+                          }`}
+                          style={{
+                            width: isDone ? '100%' : isActive ? `${Math.max(stageProgress, 3)}%` : '0%',
+                            background: isDone
+                              ? '#d2ff00'
+                              : isActive
+                                ? 'linear-gradient(90deg, #00f0ffcc, #00f0ff)'
+                                : 'transparent',
+                            boxShadow: isActive ? '0 0 12px rgba(0,240,255,0.3)' : 'none',
+                          }}
+                        >
+                          {isActive && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent animate-shimmer" />
+                          )}
+                        </div>
+                      </div>
+                      {/* Stage label */}
+                      <span className={`text-xs font-mono text-center truncate ${
+                        isDone ? 'text-[#d2ff00]/70' : isActive ? 'text-[#00f0ff]/80' : 'text-slate-700'
+                      }`}>
+                        {isDone ? `Stage ${i + 1} ✓` : isActive && pipelineStage ? pipelineStage : `Stage ${i + 1}`}
                       </span>
                     </div>
                   )
                 })}
               </div>
-              {pipelineStatus && (
-                <span className={`text-sm font-heading tracking-[0.2em] px-2.5 py-1 rounded border flex-shrink-0 ${
-                  pipelineStatus === 'inference' ? 'border-blue-500/30 text-blue-400' :
-                  pipelineStatus === 'waypoints' ? 'border-violet-500/30 text-violet-400' :
-                  'border-cyan-500/30 text-cyan-400'
-                }`}>
-                  {pipelineStatus.toUpperCase()}
-                </span>
-              )}
             </div>
           )}
 
@@ -485,10 +488,25 @@ function App() {
             {/* ── Morphing Hero Button — changes based on state ── */}
             <div className="mb-4 flex-shrink-0">
               {isWarmup ? (
-                /* Warmup: loading state */
-                <div className="flex items-center justify-center gap-4 py-6 lg:py-8 rounded-xl border border-[#00f0ff]/10 bg-[#00f0ff]/[0.02] neon-border-animated">
-                  <div className="w-6 h-6 border-2 border-[#00f0ff] border-t-transparent rounded-full animate-smooth-spin" />
-                  <span className="text-lg font-heading tracking-[0.15em] text-slate-500">LOADING MODEL…</span>
+                /* Warmup: loading state with progress */
+                <div className="flex flex-col gap-3 py-6 lg:py-8 px-6 rounded-xl border border-[#00f0ff]/10 bg-[#00f0ff]/[0.02] neon-border-animated">
+                  <div className="flex items-center justify-center gap-4">
+                    <div className="w-6 h-6 border-2 border-[#00f0ff] border-t-transparent rounded-full animate-smooth-spin" />
+                    <span className="text-lg font-heading tracking-[0.15em] text-slate-500">LOADING MODEL…</span>
+                    <span className="text-lg font-heading tracking-wider text-[#00f0ff]/60">{progress}%</span>
+                  </div>
+                  <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-700 ease-out progress-glow relative"
+                      style={{
+                        width: `${progress}%`,
+                        background: 'linear-gradient(90deg, #00f0ffcc, #00f0ff)',
+                        boxShadow: '0 0 12px rgba(0,240,255,0.3)',
+                      }}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent animate-shimmer" />
+                    </div>
+                  </div>
                 </div>
               ) : canStart ? (
                 /* Ready/Done/Error: START */
