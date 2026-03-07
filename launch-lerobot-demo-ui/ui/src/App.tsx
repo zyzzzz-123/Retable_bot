@@ -478,21 +478,20 @@ function App() {
           </div>
 
           {/* ═══════════════════════════════════════════════════════
-             ACTION PANEL — redesigned with bold layout
+             ACTION PANEL — single morphing hero button
              ═══════════════════════════════════════════════════════ */}
           <div className="flex-1 flex flex-col min-h-0">
 
-            {/* Warmup state */}
-            {isWarmup && (
-              <div className="flex items-center justify-center gap-4 py-5 rounded-xl border border-[#00f0ff]/10 bg-[#00f0ff]/[0.02] neon-border-animated mb-4">
-                <div className="w-6 h-6 border-2 border-[#00f0ff] border-t-transparent rounded-full animate-smooth-spin" />
-                <span className="text-base font-heading tracking-[0.15em] text-slate-500">LOADING MODEL…</span>
-              </div>
-            )}
-
-            {/* ── Primary Action — the hero button ── */}
-            {canStart && (
-              <div className="mb-4">
+            {/* ── Morphing Hero Button — changes based on state ── */}
+            <div className="mb-4 flex-shrink-0">
+              {isWarmup ? (
+                /* Warmup: loading state */
+                <div className="flex items-center justify-center gap-4 py-6 lg:py-8 rounded-xl border border-[#00f0ff]/10 bg-[#00f0ff]/[0.02] neon-border-animated">
+                  <div className="w-6 h-6 border-2 border-[#00f0ff] border-t-transparent rounded-full animate-smooth-spin" />
+                  <span className="text-lg font-heading tracking-[0.15em] text-slate-500">LOADING MODEL…</span>
+                </div>
+              ) : canStart ? (
+                /* Ready/Done/Error: START */
                 <button onClick={doStart}
                   className="group w-full py-6 lg:py-8 rounded-xl font-heading font-black text-2xl lg:text-3xl tracking-[0.2em]
                              bg-[#d2ff00] text-black hover:bg-[#e5ff4d]
@@ -500,15 +499,29 @@ function App() {
                              transition-all duration-200 btn-press relative overflow-hidden">
                   <span className="relative z-10 flex items-center justify-center gap-3">
                     <IconPlay size={28} />
-                    START INFERENCE
+                    START
                   </span>
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                 </button>
-              </div>
-            )}
-
-            {isPaused && (
-              <div className="mb-4">
+              ) : isRunning ? (
+                /* Running: STOP */
+                <button onClick={doStop}
+                  className="group w-full py-6 lg:py-8 rounded-xl font-heading font-black text-2xl lg:text-3xl tracking-[0.25em]
+                             bg-gradient-to-b from-red-500 to-red-700 text-white
+                             border-2 border-red-400/40 hover:border-red-300/60
+                             estop-active
+                             shadow-[0_0_50px_rgba(239,68,68,0.3),0_0_100px_rgba(239,68,68,0.1)]
+                             hover:shadow-[0_0_70px_rgba(239,68,68,0.45),0_0_120px_rgba(239,68,68,0.15)]
+                             hover:from-red-400 hover:to-red-600
+                             active:from-red-600 active:to-red-800
+                             transition-all duration-200 btn-press relative overflow-hidden select-none">
+                  <span className="relative z-10 flex items-center justify-center gap-3">
+                    <IconStop size={32} />
+                    STOP
+                  </span>
+                </button>
+              ) : isPaused ? (
+                /* Paused/Homed: RESUME */
                 <button onClick={doResume}
                   className="group w-full py-6 lg:py-8 rounded-xl font-heading font-black text-2xl lg:text-3xl tracking-[0.2em]
                              bg-blue-500 text-white hover:bg-blue-400
@@ -520,14 +533,14 @@ function App() {
                   </span>
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                 </button>
-              </div>
-            )}
+              ) : null}
+            </div>
 
             {/* ── Secondary Actions — icon-driven grid ── */}
-            {(canStart || isPaused || hasProcess) && (
+            {!isWarmup && (
               <div className="grid grid-cols-3 gap-3 mb-4">
                 {/* Home */}
-                <button onClick={doHome} disabled={isWarmup}
+                <button onClick={doHome}
                   className="action-tile group"
                   style={{ '--tile-color': '#d2ff00' } as React.CSSProperties}>
                   <IconHome size={28} className="text-[#d2ff00]/60 group-hover:text-[#d2ff00] transition-colors" />
@@ -577,41 +590,6 @@ function App() {
                 </span>
               </button>
             )}
-
-            {/* Spacer */}
-            <div className="flex-1 min-h-1" />
-
-            {/* ═══ EMERGENCY STOP — always anchored at bottom ═══ */}
-            <div className="w-full flex-shrink-0 pt-3">
-              <button
-                onClick={hasProcess ? doStop : undefined}
-                disabled={!hasProcess}
-                className={`w-full rounded-xl font-heading font-black transition-all duration-200 select-none btn-press
-                            ${hasProcess
-                              ? `py-6 lg:py-8 text-3xl lg:text-4xl tracking-[0.25em]
-                                 bg-gradient-to-b from-red-500 to-red-700 text-white
-                                 border-2 border-red-400/40 hover:border-red-300/60
-                                 estop-active
-                                 shadow-[0_0_50px_rgba(239,68,68,0.3),0_0_100px_rgba(239,68,68,0.1)]
-                                 hover:shadow-[0_0_70px_rgba(239,68,68,0.45),0_0_120px_rgba(239,68,68,0.15)]
-                                 hover:from-red-400 hover:to-red-600
-                                 active:from-red-600 active:to-red-800`
-                              : `py-4 text-base tracking-[0.2em]
-                                 bg-white/[0.015] text-slate-800 cursor-default border border-white/[0.03]`
-                            }`}>
-                {hasProcess ? (
-                  <span className="flex items-center justify-center gap-3">
-                    <IconStop size={34} />
-                    EMERGENCY STOP
-                  </span>
-                ) : (
-                  <span className="flex items-center justify-center gap-2 opacity-40">
-                    <IconStop size={18} />
-                    E-STOP
-                  </span>
-                )}
-              </button>
-            </div>
 
           </div>{/* end action panel */}
         </div>{/* end left column */}
