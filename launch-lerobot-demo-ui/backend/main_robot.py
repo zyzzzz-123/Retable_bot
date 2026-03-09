@@ -138,7 +138,58 @@ class RobotState:
         self.llm_planning = False      # True while LLM API call is in progress
         self.llm_plan_error = ""       # Error message if LLM call failed
         self.llm_stages_to_run = []    # ["Tissue", "Cup"] — filtered stage names
-        
+        # Per-stage status list for frontend pipeline display
+        # Each entry: {"name": "Lemon", "llm_status": "done"|"todo"|"", "exec_status": "pending"|"active"|"done"|"skipped"}
+        self.pipeline_stages_info = self._build_stages_info()
+
+    def _build_stages_info(self):
+        """Build pipeline_stages_info from PIPELINE_STAGES + LLM plan."""
+        stages = []
+        for s in PIPELINE_STAGES:
+            name = s["name"]
+            llm_status = ""
+            if self.llm_plan and name in self.llm_plan:
+                llm_status = self.llm_plan[name]["status"]
+            stages.append({
+                "name": name,
+                "llm_status": llm_status,       # "done" | "todo" | ""
+                "exec_status": "pending",        # "pending" | "active" | "done" | "skipped"
+            })
+        return stages
+
+    def update_stages_from_plan(self):
+        """After LLM plan, update stages_info with done/todo and mark skipped."""
+        self.pipeline_stages_info = []
+        run_set = set(self.llm_stages_to_run)
+        for s in PIPELINE_STAGES:
+            name = s["name"]
+            llm_status = ""
+            if self.llm_plan and name in self.llm_plan:
+                llm_status = self.llm_plan[name]["status"]
+            exec_status = "pending" if name in run_set else "skipped"
+            if llm_status == "done":
+                exec_status = "skipped"
+            self.pipeline_stages_info.append({
+                "name": name,
+                "llm_status": llm_status,
+                "exec_status": exec_status,
+            })
+        self.pipeline_total = len([s for s in self.pipeline_stages_info if s["exec_status"] != "skipped"])
+
+    def mark_stage_active(self, stage_name: str):
+        """Mark a stage as active (currently executing)."""
+        for s in self.pipeline_stages_info:
+            if s["name"] == stage_name:
+                s["exec_status"] = "active"
+                break
+
+    def mark_stage_done(self, stage_name: str):
+        """Mark a stage as done (completed execution)."""
+        for s in self.pipeline_stages_info:
+            if s["name"] == stage_name:
+                s["exec_status"] = "done"
+                break
+
     def to_dict(self):
         return {
             "state": self.state,
@@ -152,7 +203,7 @@ class RobotState:
             "pipeline_stage_idx": self.pipeline_stage_idx,
             "pipeline_total": self.pipeline_total,
             "pipeline_status": self.pipeline_status,
-            "llm_plan": self.llm_plan,
+            "pipeline_stages_info": self.pipeline_stages_info,
             "llm_planning": self.llm_planning,
             "llm_plan_error": self.llm_plan_error,
         }
@@ -280,7 +331,7 @@ def parse_output(line: str) -> dict:
         name, reason = m.group(1), m.group(2)
         return {"step": f"[{name}] Complete",
                 "message": f"Stage [{name}] complete ({reason})",
-                "_pipeline_stage": name}
+                "_pipeline_stage": name, "_stage_complete": name}
 
     # WAYPOINTS_STARTED:count
     m = re.match(r"WAYPOINTS_STARTED:(\d+)", raw)
@@ -423,11 +474,17 @@ async def spawn_warmup_process():
                 robot.reset_to_ready()
                 robot.log_event("WARMUP_COMPLETE")
                 await broadcast_state()
+                # Auto-trigger LLM planning + start
+                if LLM_PLANNER_ENABLED:
+                    asyncio.create_task(_auto_plan_and_start())
                 continue
             if sig == "READY_FOR_START":
                 robot.reset_to_ready()
                 robot.log_event("READY_FOR_START")
                 await broadcast_state()
+                # Auto-trigger LLM planning + start
+                if LLM_PLANNER_ENABLED:
+                    asyncio.create_task(_auto_plan_and_start())
                 continue
             if sig == "INFERENCE_DONE":
                 robot.state = "DONE"
@@ -494,13 +551,26 @@ async def spawn_warmup_process():
             # Update pipeline sub-state
             if "_pipeline_stage" in updates:
                 robot.pipeline_stage = updates.pop("_pipeline_stage")
-                # Derive stage index from name
+                # Derive stage index from name (among active stages only)
+                active_idx = 0
                 for i, s in enumerate(PIPELINE_STAGES):
                     if s["name"] == robot.pipeline_stage:
-                        robot.pipeline_stage_idx = i
+                        robot.pipeline_stage_idx = active_idx
                         break
+                    # Only count non-skipped stages for index
+                    if robot.pipeline_stages_info and i < len(robot.pipeline_stages_info):
+                        if robot.pipeline_stages_info[i]["exec_status"] != "skipped":
+                            active_idx += 1
             if "_pipeline_status" in updates:
-                robot.pipeline_status = updates.pop("_pipeline_status")
+                new_status = updates.pop("_pipeline_status")
+                robot.pipeline_status = new_status
+                # Mark stage as active when loading/inference starts
+                if new_status in ("loading", "inference") and robot.pipeline_stage:
+                    robot.mark_stage_active(robot.pipeline_stage)
+            # Check for stage completion signal
+            if "_stage_complete" in updates:
+                completed_name = updates.pop("_stage_complete")
+                robot.mark_stage_done(completed_name)
 
             # Apply normal state updates
             for k in ("state", "step", "progress", "message"):
@@ -573,6 +643,7 @@ async def run_llm_planning() -> dict:
         robot.llm_plan = plan_to_dict(result)
         robot.llm_stages_to_run = result.stages_to_run
         robot.llm_planning = False
+        robot.update_stages_from_plan()
 
         if not result.stages_to_run:
             robot.llm_plan_error = ""
@@ -597,6 +668,37 @@ async def run_llm_planning() -> dict:
         raise
 
 
+async def _auto_plan_and_start():
+    """Auto-triggered after warmup: run LLM plan → send PLAN + START."""
+    try:
+        await run_llm_planning()
+    except LLMPlannerError:
+        print(f"[AUTO] LLM planning failed: {robot.llm_plan_error}")
+        return
+
+    if not robot.llm_stages_to_run:
+        robot.state = "DONE"
+        robot.step = "All Done"
+        robot.progress = 100
+        robot.message = "All objects already done — nothing to do!"
+        await broadcast_state()
+        return
+
+    # Send PLAN + START
+    plan_cmd = "PLAN:" + ",".join(robot.llm_stages_to_run)
+    send_control_command(plan_cmd)
+    await asyncio.sleep(0.15)
+    send_control_command("START")
+
+    robot.state = "WORKING"
+    robot.step = "Starting"
+    robot.progress = 0
+    robot.message = f"Starting: {', '.join(robot.llm_stages_to_run)}"
+    robot.pipeline_stage_idx = 0
+    robot.log_event("AUTO_START", {"planned_stages": robot.llm_stages_to_run})
+    await broadcast_state()
+
+
 # ==================== API Endpoints ====================
 
 class FeedbackRequest(BaseModel):
@@ -610,7 +712,7 @@ class MoveToPointRequest(BaseModel):
 
 @app.post("/api/start")
 async def api_start():
-    """Send START command — with LLM planning if enabled."""
+    """Trigger LLM plan + start. Auto-triggered on warmup, can also be called manually."""
     if robot.process is None:
         return {"status": "error", "message": "Process not running. Warming up..."}
     if robot.state == "WARMUP":
@@ -618,36 +720,9 @@ async def api_start():
     if robot.state == "WORKING":
         return {"status": "error", "message": "Already running"}
 
-    # ── LLM Planning ──
-    if LLM_PLANNER_ENABLED:
-        try:
-            await run_llm_planning()
-        except LLMPlannerError:
-            return {"status": "error", "message": f"LLM planner failed: {robot.llm_plan_error}"}
-
-        if not robot.llm_stages_to_run:
-            robot.state = "DONE"
-            robot.step = "All Done"
-            robot.progress = 100
-            robot.message = "All objects already done — nothing to do!"
-            await broadcast_state()
-            return {"status": "ok", "message": "All objects already done"}
-
-        # Send PLAN command first, then START
-        plan_cmd = "PLAN:" + ",".join(robot.llm_stages_to_run)
-        send_control_command(plan_cmd)
-        await asyncio.sleep(0.15)  # Give eval_pipeline time to read PLAN
-
-    send_control_command("START")
-    robot.state = "WORKING"
-    robot.step = "Starting"
-    robot.progress = 0
-    robot.message = "Inference starting..."
-    robot.pipeline_stage_idx = 0
-    robot.pipeline_total = len(robot.llm_stages_to_run) if robot.llm_stages_to_run else len(PIPELINE_STAGES)
-    robot.log_event("CMD_START", {"planned_stages": robot.llm_stages_to_run})
-    await broadcast_state()
-    return {"status": "ok", "message": "Start sent — inference beginning immediately"}
+    # Use the shared auto-plan-and-start logic
+    asyncio.create_task(_auto_plan_and_start())
+    return {"status": "ok", "message": "Planning and starting..."}
 
 
 @app.post("/api/stop")
@@ -694,7 +769,7 @@ async def api_resume():
 
 @app.post("/api/restart")
 async def api_restart():
-    """Restart pipeline: go home → LLM plan → run only needed stages."""
+    """Restart pipeline: go home → LLM plan → auto-start."""
     if robot.process is None:
         return {"status": "error", "message": "Not running"}
 
@@ -706,15 +781,23 @@ async def api_restart():
     robot.log_event("CMD_RESTART_HOME")
     await broadcast_state()
 
-    # Wait a moment for the robot to start homing
-    await asyncio.sleep(1.0)
+    # Run the rest in background so API returns immediately
+    asyncio.create_task(_restart_plan_and_go())
+    return {"status": "ok", "message": "Restarting — going home + replanning..."}
+
+
+async def _restart_plan_and_go():
+    """Background task for restart: wait a moment → LLM plan → PLAN + RESTART."""
+    # Give robot time to start homing
+    await asyncio.sleep(2.0)
 
     # Step 2: LLM Planning
     if LLM_PLANNER_ENABLED:
         try:
             await run_llm_planning()
         except LLMPlannerError:
-            return {"status": "error", "message": f"LLM planner failed: {robot.llm_plan_error}"}
+            print(f"[RESTART] LLM planning failed: {robot.llm_plan_error}")
+            return
 
         if not robot.llm_stages_to_run:
             robot.state = "DONE"
@@ -722,9 +805,9 @@ async def api_restart():
             robot.progress = 100
             robot.message = "All objects already done — nothing to do!"
             await broadcast_state()
-            return {"status": "ok", "message": "All objects already done"}
+            return
 
-        # Send PLAN command, then RESTART
+        # Send PLAN + RESTART
         plan_cmd = "PLAN:" + ",".join(robot.llm_stages_to_run)
         send_control_command(plan_cmd)
         await asyncio.sleep(0.15)
@@ -733,13 +816,11 @@ async def api_restart():
     robot.state = "WORKING"
     robot.step = "Restarting"
     robot.progress = 0
-    robot.message = f"Restarting with plan: {', '.join(robot.llm_stages_to_run) if robot.llm_stages_to_run else 'all stages'}..."
+    robot.message = f"Restarting: {', '.join(robot.llm_stages_to_run) if robot.llm_stages_to_run else 'all stages'}..."
     robot.pipeline_stage_idx = 0
-    robot.pipeline_total = len(robot.llm_stages_to_run) if robot.llm_stages_to_run else len(PIPELINE_STAGES)
     robot.pipeline_status = "loading"
     robot.log_event("CMD_RESTART", {"planned_stages": robot.llm_stages_to_run})
     await broadcast_state()
-    return {"status": "ok", "message": "Restart sent with LLM plan"}
 
 
 @app.post("/api/retry")

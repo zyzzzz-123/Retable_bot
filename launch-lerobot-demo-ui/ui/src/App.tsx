@@ -6,9 +6,10 @@ import { useState, useEffect, useCallback, useRef, type FC } from 'react'
 
 type RobotState = 'WARMUP' | 'READY' | 'WORKING' | 'PAUSED' | 'HOMED' | 'DONE' | 'ERROR'
 
-interface LLMObjectStatus {
-  status: 'done' | 'todo'
-  reason?: string
+interface PipelineStageInfo {
+  name: string
+  llm_status: 'done' | 'todo' | ''   // from LLM planner
+  exec_status: 'pending' | 'active' | 'done' | 'skipped'  // execution state
 }
 
 interface StatusMessage {
@@ -23,7 +24,7 @@ interface StatusMessage {
   pipeline_stage_idx?: number
   pipeline_total?: number
   pipeline_status?: string
-  llm_plan?: Record<string, LLMObjectStatus> | null
+  pipeline_stages_info?: PipelineStageInfo[]
   llm_planning?: boolean
   llm_plan_error?: string
 }
@@ -206,7 +207,7 @@ const MobileCameraFeeds: FC<{ active: boolean; handDetected: boolean; handDetect
 }
 
 /* ================================================================
-   LLM Vision Planner Panel
+   Object Icons
    ================================================================ */
 
 const OBJECT_ICONS: Record<string, string> = {
@@ -214,79 +215,6 @@ const OBJECT_ICONS: Record<string, string> = {
   Tissue: '🧻',
   Cup: '🥤',
   Cloth: '🧹',
-}
-
-const LLMPlanPanel: FC<{
-  plan: Record<string, LLMObjectStatus> | null
-  planning: boolean
-  error: string
-}> = ({ plan, planning, error }) => {
-  if (!plan && !planning && !error) return null
-
-  return (
-    <div className="mb-4 flex-shrink-0 rounded-lg border border-violet-500/20 bg-violet-500/[0.03] p-4 transition-all duration-300">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-base">🧠</span>
-        <span className="text-sm font-heading tracking-[0.3em] text-violet-400/80">VISION PLANNER</span>
-        {planning && (
-          <div className="ml-auto flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-smooth-spin" />
-            <span className="text-xs font-heading tracking-[0.2em] text-violet-400/60">ANALYZING…</span>
-          </div>
-        )}
-      </div>
-
-      {error && (
-        <div className="px-3 py-2 rounded bg-red-500/10 border border-red-500/20 mb-2">
-          <span className="text-xs font-mono text-red-400">{error}</span>
-        </div>
-      )}
-
-      {plan && (
-        <div className="grid grid-cols-2 gap-2">
-          {Object.entries(plan).map(([name, obj]) => {
-            const isDone = obj.status === 'done'
-            return (
-              <div key={name}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition-all duration-300 ${
-                  isDone
-                    ? 'border-emerald-500/20 bg-emerald-500/[0.05]'
-                    : 'border-amber-500/20 bg-amber-500/[0.05]'
-                }`}>
-                <span className="text-lg flex-shrink-0">{OBJECT_ICONS[name] || '📦'}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`text-sm font-heading tracking-[0.1em] ${
-                      isDone ? 'text-emerald-400' : 'text-amber-400'
-                    }`}>{name}</span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded font-heading tracking-wider ${
-                      isDone
-                        ? 'bg-emerald-500/20 text-emerald-300'
-                        : 'bg-amber-500/20 text-amber-300'
-                    }`}>
-                      {isDone ? '✓ DONE' : '⏳ TODO'}
-                    </span>
-                  </div>
-                  {obj.reason && (
-                    <p className="text-[10px] text-slate-600 mt-0.5 truncate">{obj.reason}</p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {planning && !plan && (
-        <div className="flex items-center justify-center py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-5 h-5 border-2 border-violet-400 border-t-transparent rounded-full animate-smooth-spin" />
-            <span className="text-sm font-heading tracking-[0.15em] text-slate-500">Analyzing scene…</span>
-          </div>
-        </div>
-      )}
-    </div>
-  )
 }
 
 /* ================================================================
@@ -304,11 +232,11 @@ function App() {
   const [handDetect, setHandDetect]       = useState(true)
   const [handDetected, setHandDetected]   = useState(false)
   const [autoStopped, setAutoStopped]     = useState(false)
-  const [pipelineStage, setPipelineStage]     = useState('')
-  const [pipelineStageIdx, setPipelineStageIdx] = useState(0)
-  const [pipelineTotal, setPipelineTotal]     = useState(0)
+  const [, setPipelineStage]     = useState('')
+  const [, setPipelineStageIdx] = useState(0)
+  const [, setPipelineTotal]     = useState(0)
   const [pipelineStatus, setPipelineStatus]   = useState('')
-  const [llmPlan, setLlmPlan]           = useState<Record<string, LLMObjectStatus> | null>(null)
+  const [stagesInfo, setStagesInfo]     = useState<PipelineStageInfo[]>([])
   const [llmPlanning, setLlmPlanning]   = useState(false)
   const [llmPlanError, setLlmPlanError] = useState('')
   const [mounted, setMounted] = useState(false)
@@ -363,7 +291,7 @@ function App() {
           if (d.pipeline_stage_idx !== undefined) setPipelineStageIdx(d.pipeline_stage_idx)
           if (d.pipeline_total !== undefined)     setPipelineTotal(d.pipeline_total)
           if (d.pipeline_status !== undefined)    setPipelineStatus(d.pipeline_status)
-          if (d.llm_plan !== undefined)       setLlmPlan(d.llm_plan)
+          if (d.pipeline_stages_info !== undefined) setStagesInfo(d.pipeline_stages_info)
           if (d.llm_planning !== undefined)   setLlmPlanning(d.llm_planning)
           if (d.llm_plan_error !== undefined) setLlmPlanError(d.llm_plan_error)
         } catch { /* ignore */ }
@@ -447,16 +375,19 @@ function App() {
             )}
           </div>
 
-          {/* ─── LLM VISION PLANNER ─── */}
-          <LLMPlanPanel plan={llmPlan} planning={llmPlanning} error={llmPlanError} />
-
-          {/* ─── PIPELINE (with per-stage progress) ─── */}
-          {pipelineTotal > 0 && (
+          {/* ─── PIPELINE (integrated with LLM plan) ─── */}
+          {(stagesInfo.length > 0 || llmPlanning) && (
             <div className="mb-4 flex-shrink-0">
-              <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center gap-3 mb-3">
                 <span className="text-sm font-heading tracking-[0.3em] text-slate-600 flex-shrink-0">PIPELINE</span>
                 <div className="flex-1" />
-                {pipelineStatus && (
+                {llmPlanning && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-smooth-spin" />
+                    <span className="text-xs font-heading tracking-[0.2em] text-violet-400/60">🧠 ANALYZING…</span>
+                  </div>
+                )}
+                {!llmPlanning && pipelineStatus && (
                   <span className={`text-sm font-heading tracking-[0.2em] px-2.5 py-1 rounded border flex-shrink-0 ${
                     pipelineStatus === 'inference' ? 'border-blue-500/30 text-blue-400' :
                     pipelineStatus === 'waypoints' ? 'border-violet-500/30 text-violet-400' :
@@ -466,46 +397,112 @@ function App() {
                   </span>
                 )}
               </div>
-              <div className="flex items-stretch gap-2">
-                {Array.from({ length: pipelineTotal }, (_, i) => {
-                  const isActive = i === pipelineStageIdx && !isWarmup && (isRunning || pipelineStatus !== '')
-                  const isDone = i < pipelineStageIdx || state === 'DONE'
+
+              {llmPlanError && (
+                <div className="px-3 py-2 rounded bg-red-500/10 border border-red-500/20 mb-3">
+                  <span className="text-xs font-mono text-red-400">{llmPlanError}</span>
+                </div>
+              )}
+
+              {/* Stage cards */}
+              <div className="flex flex-col gap-2">
+                {stagesInfo.map((stage) => {
+                  const isSkipped = stage.exec_status === 'skipped'
+                  const isActive = stage.exec_status === 'active'
+                  const isDone = stage.exec_status === 'done'
+                  const llmDone = stage.llm_status === 'done'
+                  const llmTodo = stage.llm_status === 'todo'
                   const stageProgress = isActive ? progress : 0
+                  const icon = OBJECT_ICONS[stage.name] || '📦'
+
                   return (
-                    <div key={i} className="flex-1 flex flex-col gap-1.5">
-                      {/* Stage bar with fill */}
-                      <div className={`w-full h-3 rounded-full overflow-hidden transition-all duration-500 ${
-                        isDone ? '' : 'bg-white/[0.06]'
+                    <div key={stage.name}
+                      className={`relative flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-300 ${
+                        isDone
+                          ? 'border-[#d2ff00]/30 bg-[#d2ff00]/[0.04]'
+                          : isActive
+                            ? 'border-[#00f0ff]/40 bg-[#00f0ff]/[0.04]'
+                            : isSkipped && llmDone
+                              ? 'border-emerald-500/20 bg-emerald-500/[0.03] opacity-60'
+                              : isSkipped
+                                ? 'border-white/[0.04] bg-white/[0.01] opacity-40'
+                                : 'border-white/[0.06] bg-white/[0.02]'
                       }`}>
-                        <div
-                          className={`h-full rounded-full transition-all duration-700 ease-out relative ${
-                            isActive ? 'progress-glow' : ''
-                          }`}
-                          style={{
-                            width: isDone ? '100%' : isActive ? `${Math.max(stageProgress, 3)}%` : '0%',
-                            background: isDone
-                              ? '#d2ff00'
-                              : isActive
-                                ? 'linear-gradient(90deg, #00f0ffcc, #00f0ff)'
-                                : 'transparent',
-                            boxShadow: isActive ? '0 0 12px rgba(0,240,255,0.3)' : 'none',
-                          }}
-                        >
+                      {/* Icon */}
+                      <span className="text-xl flex-shrink-0">{icon}</span>
+
+                      {/* Name + status */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-heading tracking-[0.1em] ${
+                            isDone ? 'text-[#d2ff00]' :
+                            isActive ? 'text-[#00f0ff]' :
+                            isSkipped && llmDone ? 'text-emerald-400' :
+                            'text-slate-500'
+                          }`}>{stage.name}</span>
+
+                          {/* LLM badge */}
+                          {llmDone && !isDone && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-heading tracking-wider">
+                              ✓ ALREADY DONE
+                            </span>
+                          )}
+                          {llmTodo && !isDone && !isActive && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-heading tracking-wider">
+                              ⏳ TODO
+                            </span>
+                          )}
+
+                          {/* Execution badge */}
+                          {isDone && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#d2ff00]/20 text-[#d2ff00] font-heading tracking-wider">
+                              ✓ COMPLETED
+                            </span>
+                          )}
                           {isActive && (
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent animate-shimmer" />
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#00f0ff]/20 text-[#00f0ff] font-heading tracking-wider animate-pulse">
+                              ▶ RUNNING
+                            </span>
                           )}
                         </div>
+
+                        {/* Progress bar for active stage */}
+                        {isActive && (
+                          <div className="mt-2 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-700 ease-out relative progress-glow"
+                              style={{
+                                width: `${Math.max(stageProgress, 3)}%`,
+                                background: 'linear-gradient(90deg, #00f0ffcc, #00f0ff)',
+                                boxShadow: '0 0 8px rgba(0,240,255,0.3)',
+                              }}
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent animate-shimmer" />
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {/* Stage label */}
-                      <span className={`text-xs font-mono text-center truncate ${
-                        isDone ? 'text-[#d2ff00]/70' : isActive ? 'text-[#00f0ff]/80' : 'text-slate-700'
-                      }`}>
-                        {isDone ? `Stage ${i + 1} ✓` : isActive && pipelineStage ? pipelineStage : `Stage ${i + 1}`}
-                      </span>
+
+                      {/* Right side: progress % or check */}
+                      <div className="flex-shrink-0 w-10 text-right">
+                        {isDone && <span className="text-[#d2ff00] text-lg">✓</span>}
+                        {isActive && <span className="text-xs font-mono text-[#00f0ff]/80">{stageProgress}%</span>}
+                        {isSkipped && llmDone && <span className="text-emerald-400 text-sm">✓</span>}
+                      </div>
                     </div>
                   )
                 })}
               </div>
+
+              {/* Planning spinner when no stages info yet */}
+              {llmPlanning && stagesInfo.length === 0 && (
+                <div className="flex items-center justify-center py-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-5 h-5 border-2 border-violet-400 border-t-transparent rounded-full animate-smooth-spin" />
+                    <span className="text-sm font-heading tracking-[0.15em] text-slate-500">Analyzing scene…</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
