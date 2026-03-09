@@ -8,7 +8,7 @@ type RobotState = 'WARMUP' | 'READY' | 'WORKING' | 'PAUSED' | 'HOMED' | 'DONE' |
 
 interface PipelineStageInfo {
   name: string
-  llm_status: 'done' | 'todo' | ''   // from LLM planner
+  llm_status: 'done' | 'todo' | 'not_found' | ''   // from LLM planner
   exec_status: 'pending' | 'active' | 'done' | 'skipped'  // execution state
 }
 
@@ -404,58 +404,35 @@ function App() {
                 </div>
               )}
 
-              {/* Stage cards */}
+              {/* Stage cards — only visible objects (not_found filtered by backend) */}
               <div className="flex flex-col gap-2">
                 {stagesInfo.map((stage) => {
-                  const isSkipped = stage.exec_status === 'skipped'
                   const isActive = stage.exec_status === 'active'
-                  const isDone = stage.exec_status === 'done'
+                  const execDone = stage.exec_status === 'done'
                   const llmDone = stage.llm_status === 'done'
-                  const llmTodo = stage.llm_status === 'todo'
+                  const isDone = execDone || llmDone
                   const icon = OBJECT_ICONS[stage.name] || '📦'
 
                   return (
                     <div key={stage.name}
                       className={`relative flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-300 ${
                         isDone
-                          ? 'border-[#d2ff00]/30 bg-[#d2ff00]/[0.04]'
+                          ? 'border-emerald-500/25 bg-emerald-500/[0.04]'
                           : isActive
                             ? 'border-[#00f0ff]/40 bg-[#00f0ff]/[0.04]'
-                            : isSkipped && llmDone
-                              ? 'border-emerald-500/20 bg-emerald-500/[0.03] opacity-60'
-                              : isSkipped
-                                ? 'border-white/[0.04] bg-white/[0.01] opacity-40'
-                                : 'border-white/[0.06] bg-white/[0.02]'
+                            : 'border-white/[0.06] bg-white/[0.02]'
                       }`}>
-                      {/* Icon */}
                       <span className="text-xl flex-shrink-0">{icon}</span>
-
-                      {/* Name + status */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`text-sm font-heading tracking-[0.1em] ${
-                            isDone ? 'text-[#d2ff00]' :
+                            isDone ? 'text-emerald-400' :
                             isActive ? 'text-[#00f0ff]' :
-                            isSkipped && llmDone ? 'text-emerald-400' :
                             'text-slate-500'
                           }`}>{stage.name}</span>
-
-                          {/* LLM badge */}
-                          {llmDone && !isDone && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-heading tracking-wider">
-                              ✓ ALREADY DONE
-                            </span>
-                          )}
-                          {llmTodo && !isDone && !isActive && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-heading tracking-wider">
-                              ⏳ TODO
-                            </span>
-                          )}
-
-                          {/* Execution badge */}
                           {isDone && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#d2ff00]/20 text-[#d2ff00] font-heading tracking-wider">
-                              ✓ COMPLETED
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-heading tracking-wider">
+                              ✓ DONE
                             </span>
                           )}
                           {isActive && (
@@ -463,14 +440,15 @@ function App() {
                               ▶ RUNNING
                             </span>
                           )}
+                          {!isDone && !isActive && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-heading tracking-wider">
+                              ⏳ TODO
+                            </span>
+                          )}
                         </div>
-
                       </div>
-
-                      {/* Right side: check marks */}
-                      <div className="flex-shrink-0 w-10 text-right">
-                        {isDone && <span className="text-[#d2ff00] text-lg">✓</span>}
-                        {isSkipped && llmDone && <span className="text-emerald-400 text-sm">✓</span>}
+                      <div className="flex-shrink-0 w-8 text-right">
+                        {isDone && <span className="text-emerald-400 text-lg">✓</span>}
                       </div>
                     </div>
                   )

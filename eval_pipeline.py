@@ -957,14 +957,11 @@ def main():
         hand_detector.start()
         print("HAND_DETECT_ON", flush=True)
 
-    # ── Phase 2: Load first model ──
-    first_stage = pipeline_stages[0]
-    print(f"WARMUP_PHASE: loading_model", flush=True)
-    logger.info(f"Loading first model: {first_stage['model']}")
-    model = ACTPolicy.from_pretrained(first_stage["model"])
-    model.eval()
+    # ── Phase 2: Skip model preload — LLM planner decides which model to load first ──
+    model = None
+    preprocess = postprocess = None
     print("WARMUP_PHASE: model_loaded", flush=True)
-    preprocess, postprocess = make_pre_post_processors(model.config, pretrained_path=first_stage["model"])
+    logger.info("Skipping model preload — will load after LLM plan")
 
     # ── Print summary ──
     print("\n" + "=" * 60, flush=True)
@@ -1032,18 +1029,17 @@ def main():
                 stage_name = stage["name"]
                 stage_model_id = stage["model"]
 
-                # ── Load model for this stage (skip if already loaded for first stage on first run) ──
-                if stage_idx > 0 or retry_requested:
-                    print(f"STAGE_LOADING:{stage_name}", flush=True)
-                    logger.info(f"Loading model for stage [{stage_name}]: {stage_model_id}")
-                    model = ACTPolicy.from_pretrained(stage_model_id)
-                    model.eval()
-                    preprocess, postprocess = make_pre_post_processors(
-                        model.config, pretrained_path=stage_model_id
-                    )
-                    print(f"STAGE_LOADED:{stage_name}", flush=True)
-                    logger.info(f"Model loaded for [{stage_name}]")
-                    retry_requested = False
+                # ── Load model for this stage ──
+                print(f"STAGE_LOADING:{stage_name}", flush=True)
+                logger.info(f"Loading model for stage [{stage_name}]: {stage_model_id}")
+                model = ACTPolicy.from_pretrained(stage_model_id)
+                model.eval()
+                preprocess, postprocess = make_pre_post_processors(
+                    model.config, pretrained_path=stage_model_id
+                )
+                print(f"STAGE_LOADED:{stage_name}", flush=True)
+                logger.info(f"Model loaded for [{stage_name}]")
+                retry_requested = False
 
                 print(f"STAGE_STARTED:{stage_name}", flush=True)
                 logger.info(f"═══ Starting stage [{stage_name}] ═══")
@@ -1137,15 +1133,9 @@ def main():
                 else:
                     restart_stages = pipeline_stages
 
-                first_stage = restart_stages[0] if restart_stages else pipeline_stages[0]
-                logger.info(f"Reloading first model for pipeline restart: {first_stage['name']}")
-                print(f"STAGE_LOADING:{first_stage['name']}", flush=True)
-                model = ACTPolicy.from_pretrained(first_stage["model"])
-                model.eval()
-                preprocess, postprocess = make_pre_post_processors(
-                    model.config, pretrained_path=first_stage["model"]
-                )
-                print(f"STAGE_LOADED:{first_stage['name']}", flush=True)
+                # No need to preload — stage loop will load the right model
+                model = None
+                preprocess = postprocess = None
                 events["stop_recording"] = False
                 events["exit_early"] = False
                 events["emergency_stop"] = False
@@ -1182,13 +1172,9 @@ def main():
             if not args.wait_for_start:
                 break
 
-            # Reload first model for next run
-            logger.info(f"Reloading first model for next run: {pipeline_stages[0]['model']}")
-            model = ACTPolicy.from_pretrained(pipeline_stages[0]["model"])
-            model.eval()
-            preprocess, postprocess = make_pre_post_processors(
-                model.config, pretrained_path=pipeline_stages[0]["model"]
-            )
+            # No need to preload — next run will load after LLM plan
+            model = None
+            preprocess = postprocess = None
 
     except KeyboardInterrupt:
         print("\n\nCtrl+C detected. Shutting down...", flush=True)

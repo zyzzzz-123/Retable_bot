@@ -143,38 +143,35 @@ class RobotState:
         self.pipeline_stages_info = self._build_stages_info()
 
     def _build_stages_info(self):
-        """Build pipeline_stages_info from PIPELINE_STAGES + LLM plan."""
-        stages = []
-        for s in PIPELINE_STAGES:
-            name = s["name"]
-            llm_status = ""
-            if self.llm_plan and name in self.llm_plan:
-                llm_status = self.llm_plan[name]["status"]
-            stages.append({
-                "name": name,
-                "llm_status": llm_status,       # "done" | "todo" | ""
-                "exec_status": "pending",        # "pending" | "active" | "done" | "skipped"
-            })
-        return stages
+        """Build initial empty pipeline_stages_info (before LLM plan)."""
+        # Before LLM plan, show nothing — stages will appear after plan completes
+        return []
 
     def update_stages_from_plan(self):
-        """After LLM plan, update stages_info with done/todo and mark skipped."""
+        """After LLM plan, build stages_info — only include objects that exist (todo or done).
+        not_found objects are excluded entirely."""
         self.pipeline_stages_info = []
-        run_set = set(self.llm_stages_to_run)
         for s in PIPELINE_STAGES:
             name = s["name"]
             llm_status = ""
             if self.llm_plan and name in self.llm_plan:
                 llm_status = self.llm_plan[name]["status"]
-            exec_status = "pending" if name in run_set else "skipped"
+            # Skip not_found objects — they don't appear in the pipeline at all
+            if llm_status == "not_found":
+                continue
+            # done → show as done (skipped), todo → show as pending (will execute)
             if llm_status == "done":
-                exec_status = "skipped"
+                exec_status = "done"
+            elif name in self.llm_stages_to_run:
+                exec_status = "pending"
+            else:
+                exec_status = "pending"
             self.pipeline_stages_info.append({
                 "name": name,
                 "llm_status": llm_status,
                 "exec_status": exec_status,
             })
-        self.pipeline_total = len([s for s in self.pipeline_stages_info if s["exec_status"] != "skipped"])
+        self.pipeline_total = len([s for s in self.pipeline_stages_info if s["exec_status"] == "pending"])
 
     def mark_stage_active(self, stage_name: str):
         """Mark a stage as active. Any previously active stage becomes done."""

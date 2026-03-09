@@ -30,22 +30,27 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════
 
 PLANNING_PROMPT = """\
-You are a visual planner for a table-clearing robot. Look at this photo of a table and determine the tidying status of each object listed below.
+You are a visual planner for a table-clearing robot. Look at this photo of a table and determine the status of each object listed below.
 
 Context: The robot arm is visible in the image. The **original/starting positions** of the lemon, tissue box, and cup are on the **left side of the robot arm**. When these objects have been tidied, they will have been moved away from the left side (e.g. into a box on the right, or off the table entirely).
 
+For each object, determine one of THREE statuses:
+- **"todo"** — The object IS visible at its original position and needs to be moved.
+- **"done"** — The object has clearly been moved away from its original position (tidied).
+- **"not_found"** — The object is NOT visible anywhere in the image (not present on the table).
+
 Objects to evaluate:
-1. **Lemon** — A lemon that should be placed into a designated box. If the lemon is still on the left side of the robot arm (its original position), status is "todo". If it is no longer visible on the left side or has been moved into a box, status is "done".
-2. **Tissue** — A tissue box that should be moved to a designated position. If the tissue box is still on the left side of the robot arm (its original position), status is "todo". If it has been moved away from the left side, status is "done".
-3. **Cup** — A water cup that should be placed into a designated box. If the cup is still on the left side of the robot arm (its original position), status is "todo". If it is no longer visible on the left side or has been moved into a box, status is "done".
-4. **Cloth** — A cleaning cloth / rag. Look specifically at the **bottom-right area** of the image. If you can see a cloth/rag in the bottom-right corner, status is "todo" (the table needs wiping). If there is NO cloth in the bottom-right corner, status is "done" (no wiping needed).
+1. **Lemon** — A yellow lemon. Original position: left side of the robot arm. If you can see a lemon on the left side → "todo". If it has been moved to a box or away from the left → "done". If no lemon is visible at all → "not_found".
+2. **Tissue** — A tissue box. Original position: left side of the robot arm. If you can see a tissue box on the left side → "todo". If it has been moved away → "done". If no tissue box is visible → "not_found".
+3. **Cup** — A water cup. Original position: left side of the robot arm. If you can see a cup on the left side → "todo". If it has been moved away → "done". If no cup is visible → "not_found".
+4. **Cloth** — A cleaning cloth / rag. Look specifically at the **bottom-right area** of the image. If you can see a cloth/rag in the bottom-right corner → "todo". If there is NO cloth in the bottom-right corner → "not_found".
 
 Respond with ONLY the following JSON, no other text:
 {
-  "Lemon": {"status": "done" or "todo", "reason": "brief reason"},
-  "Tissue": {"status": "done" or "todo", "reason": "brief reason"},
-  "Cup": {"status": "done" or "todo", "reason": "brief reason"},
-  "Cloth": {"status": "done" or "todo", "reason": "brief reason"}
+  "Lemon": {"status": "todo" or "done" or "not_found", "reason": "brief reason"},
+  "Tissue": {"status": "todo" or "done" or "not_found", "reason": "brief reason"},
+  "Cup": {"status": "todo" or "done" or "not_found", "reason": "brief reason"},
+  "Cloth": {"status": "todo" or "done" or "not_found", "reason": "brief reason"}
 }
 """
 
@@ -56,7 +61,7 @@ Respond with ONLY the following JSON, no other text:
 
 @dataclass
 class ObjectStatus:
-    status: str  # "done" | "todo"
+    status: str  # "done" | "todo" | "not_found"
     reason: str = ""
 
 
@@ -172,10 +177,10 @@ async def plan_from_camera(frame_path: Optional[str] = None) -> PlanResult:
                 f"LLM response missing object '{obj_name}'. Got: {list(plan_json.keys())}"
             )
         obj_data = plan_json[obj_name]
-        status = obj_data.get("status", "").lower().strip()
-        if status not in ("done", "todo"):
+        status = obj_data.get("status", "").lower().strip().replace(" ", "_")
+        if status not in ("done", "todo", "not_found"):
             raise LLMPlannerError(
-                f"Invalid status for '{obj_name}': '{status}'. Expected 'done' or 'todo'."
+                f"Invalid status for '{obj_name}': '{status}'. Expected 'done', 'todo', or 'not_found'."
             )
         reason = obj_data.get("reason", "")
         result.objects[obj_name] = ObjectStatus(status=status, reason=reason)
@@ -233,7 +238,7 @@ def _plan_summary(result: PlanResult) -> str:
     """One-line summary for logging."""
     parts = []
     for name, obj in result.objects.items():
-        icon = "✅" if obj.status == "done" else "⏳"
+        icon = "✅" if obj.status == "done" else "⏳" if obj.status == "todo" else "❌"
         parts.append(f"{icon} {name}={obj.status}")
     return " | ".join(parts)
 
