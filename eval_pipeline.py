@@ -1168,6 +1168,13 @@ def main():
                 events["stop_recording"] = False
                 continue
 
+            # ── Go home after pipeline complete ──
+            logger.info("Pipeline done — returning to home position")
+            print("GOTO_STARTED:HOME", flush=True)
+            go_to_rest_position(robot, rest_position=robot.rest_position,
+                                fps=args.fps, duration_s=2.0, events=events)
+            print("GOTO_DONE:HOME", flush=True)
+
             print("PIPELINE_COMPLETE", flush=True)
             print("INFERENCE_DONE", flush=True)
             logger.info("═══ Pipeline complete ═══")
