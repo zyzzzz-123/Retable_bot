@@ -45,7 +45,7 @@ const STATE_META: Record<RobotState, {
   WARMUP:  { label: 'Warming Up',  color: '#5b8fd9', bg: '#e3f0fc', border: '#b3d4f0' },
   READY:   { label: 'Ready',    color: '#e8793a', bg: '#fef3e2', border: '#f5ddb5' },
   WORKING: { label: 'Running',  color: '#3b8f7e', bg: '#e8f5ee', border: '#c3e6d1' },
-  PAUSED:  { label: 'Paused',  color: '#d9a03a', bg: '#fef8e8', border: '#f0dfa0' },
+  PAUSED:  { label: 'Stopped',  color: '#d9a03a', bg: '#fef8e8', border: '#f0dfa0' },
   HOMED:   { label: 'Homed',    color: '#8b7ec8', bg: '#f0edf8', border: '#d4cde8' },
   DONE:    { label: 'Done',    color: '#4caf7d', bg: '#e8f5ee', border: '#c3e6d1' },
   ERROR:   { label: 'Error',    color: '#d94f4f', bg: '#fdeaea', border: '#f0b8b8' },
