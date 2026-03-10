@@ -36,31 +36,31 @@ interface Toast {
 }
 
 /* ================================================================
-   State config
+   State config — warm palette
    ================================================================ */
 
 const STATE_META: Record<RobotState, {
-  label: string; color: string; glow: string; textGlow: string
+  label: string; color: string; bg: string; border: string
 }> = {
-  WARMUP:  { label: 'WARMING UP',  color: '#00f0ff', glow: 'glow-cyan',   textGlow: 'text-glow-cyan' },
-  READY:   { label: 'READY',       color: '#d2ff00', glow: 'glow-neon',   textGlow: 'text-glow-neon' },
-  WORKING: { label: 'RUNNING',     color: '#3b82f6', glow: 'glow-blue',   textGlow: 'text-glow-blue' },
-  PAUSED:  { label: 'STOPPED',     color: '#f59e0b', glow: '',            textGlow: '' },
-  HOMED:   { label: 'HOME',        color: '#a78bfa', glow: '',            textGlow: '' },
-  DONE:    { label: 'COMPLETE',    color: '#10b981', glow: 'glow-emerald',textGlow: 'text-glow-emerald' },
-  ERROR:   { label: 'ERROR',       color: '#ef4444', glow: 'glow-red',   textGlow: 'text-glow-red' },
+  WARMUP:  { label: 'Warming Up',  color: '#5b8fd9', bg: '#e3f0fc', border: '#b3d4f0' },
+  READY:   { label: 'Ready',    color: '#e8793a', bg: '#fef3e2', border: '#f5ddb5' },
+  WORKING: { label: 'Running',  color: '#3b8f7e', bg: '#e8f5ee', border: '#c3e6d1' },
+  PAUSED:  { label: 'Paused',  color: '#d9a03a', bg: '#fef8e8', border: '#f0dfa0' },
+  HOMED:   { label: 'Homed',    color: '#8b7ec8', bg: '#f0edf8', border: '#d4cde8' },
+  DONE:    { label: 'Done',    color: '#4caf7d', bg: '#e8f5ee', border: '#c3e6d1' },
+  ERROR:   { label: 'Error',    color: '#d94f4f', bg: '#fdeaea', border: '#f0b8b8' },
 }
 
 /* ================================================================
-   SVG Icons — inline for zero deps
+   SVG Icons — clean, rounded style
    ================================================================ */
 const IconPlay: FC<{ size?: number; className?: string }> = ({ size = 20, className = '' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
-    <polygon points="6 3 20 12 6 21 6 3"/>
+    <path d="M8 5.14v14.72a1 1 0 0 0 1.5.86l11.5-7.36a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
   </svg>
 )
 const IconStop: FC<{ size?: number; className?: string }> = ({ size = 20, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className={className}>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
   </svg>
 )
@@ -74,42 +74,49 @@ const IconX: FC<{ size?: number; className?: string }> = ({ size = 16, className
     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
   </svg>
 )
-const IconHand: FC<{ size?: number; color?: string }> = ({ size = 18, color = '#555' }) => (
+const IconHand: FC<{ size?: number; color?: string }> = ({ size = 18, color = '#9e978f' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" />
     <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
   </svg>
 )
+const IconRefresh: FC<{ size?: number; className?: string }> = ({ size = 18, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+  </svg>
+)
+const IconZap: FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+  </svg>
+)
 
 /* ================================================================
-   Floating Particles
+   SVG Icons — Debug overlay
    ================================================================ */
-const FloatingParticles: FC = () => {
-  const particles = Array.from({ length: 12 }, (_, i) => ({
-    id: i,
-    left: `${Math.random() * 100}%`,
-    top: `${Math.random() * 100}%`,
-    delay: `${Math.random() * 6}s`,
-    duration: `${5 + Math.random() * 5}s`,
-    size: Math.random() > 0.5 ? 3 : 2,
-    color: ['#d2ff00', '#00f0ff', '#ff00aa'][Math.floor(Math.random() * 3)],
-  }))
-  return (
-    <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-      {particles.map(p => (
-        <div key={p.id} className="particle"
-          style={{ left: p.left, top: p.top, width: p.size, height: p.size,
-                   background: p.color, animationDelay: p.delay, animationDuration: p.duration,
-                   boxShadow: `0 0 8px ${p.color}50` }} />
-      ))}
-    </div>
-  )
-}
+const IconLayers: FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" />
+  </svg>
+)
+const IconUpload: FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+  </svg>
+)
+const IconTrash: FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+)
 
 /* ================================================================
    Camera Feed
    ================================================================ */
-const CameraFeed: FC<{ name: string; active: boolean; handDetected?: boolean; isHandCamera?: boolean }> = ({ name, active, handDetected = false, isHandCamera = false }) => {
+const CameraFeed: FC<{
+  name: string; active: boolean; handDetected?: boolean; isHandCamera?: boolean;
+  overlayUrl?: string | null; overlayOpacity?: number;
+}> = ({ name, active, handDetected = false, isHandCamera = false, overlayUrl = null, overlayOpacity = 0.2 }) => {
   const imgRef = useRef<HTMLImageElement>(null)
   const [hasFrame, setHasFrame] = useState(false)
 
@@ -129,41 +136,137 @@ const CameraFeed: FC<{ name: string; active: boolean; handDetected?: boolean; is
   }, [name, active])
 
   return (
-    <div className={`relative rounded-lg overflow-hidden glass-card transition-all duration-300
-                    ${isHandCamera && handDetected ? 'border-red-500/60 glow-red' : 'hover:border-[#d2ff0030]'}`}>
+    <div className={`relative rounded-xl overflow-hidden warm-card transition-all duration-300
+                    ${isHandCamera && handDetected ? 'border-red-400 glow-red' : ''}`}>
       <img ref={imgRef} alt={name}
         className={`w-full h-auto block transition-opacity duration-500 ${hasFrame ? 'opacity-100' : 'opacity-0'}`} />
+      {/* Debug overlay image */}
+      {overlayUrl && hasFrame && (
+        <img src={overlayUrl} alt="debug overlay"
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          style={{ opacity: overlayOpacity }} />
+      )}
       {!hasFrame && (
-        <div className="flex items-center justify-center h-32 text-slate-700">
-          <div className="w-5 h-5 border-2 border-slate-700 border-t-[#00f0ff] rounded-full animate-smooth-spin" />
+        <div className="flex items-center justify-center h-32" style={{ color: '#9e978f' }}>
+          <div className="w-5 h-5 border-2 border-[#d0cbc4] border-t-[#e8793a] rounded-full animate-smooth-spin" />
         </div>
       )}
-      <div className="absolute top-2.5 left-2.5 px-3 py-1 bg-black/80 rounded text-sm font-heading tracking-[0.3em] text-[#d2ff00]/80 border border-[#d2ff00]/15">
+      {/* Camera label */}
+      <div className="absolute top-2.5 left-2.5 px-2.5 py-1 bg-white/90 backdrop-blur-sm rounded-lg text-xs font-heading tracking-wide"
+        style={{ color: '#6b6560' }}>
         {name}
       </div>
+      {/* Live indicator */}
       {hasFrame && (
-        <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 px-2.5 py-1 bg-black/80 rounded border border-red-500/20">
+        <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 px-2 py-1 bg-white/90 backdrop-blur-sm rounded-lg">
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
           </span>
-          <span className="text-sm font-heading tracking-[0.2em] text-red-400">LIVE</span>
+          <span className="text-xs font-heading tracking-wide text-red-500">LIVE</span>
         </div>
       )}
+      {/* Overlay indicator badge */}
+      {overlayUrl && hasFrame && (
+        <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 px-2 py-1 bg-purple-500/90 backdrop-blur-sm rounded-lg">
+          <IconLayers size={12} className="text-white" />
+          <span className="text-[10px] font-heading tracking-wide text-white">OVERLAY {Math.round(overlayOpacity * 100)}%</span>
+        </div>
+      )}
+      {/* Hand detection overlay */}
       {isHandCamera && handDetected && hasFrame && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="absolute inset-0 bg-red-600/25 animate-pulse" />
-          <div className="relative z-10 flex items-center gap-2 px-3 py-1.5 bg-red-600/90 backdrop-blur rounded-lg border border-red-400/40 glow-red">
+          <div className="absolute inset-0 bg-red-500/15" />
+          <div className="relative z-10 flex items-center gap-2 px-3 py-1.5 bg-white/95 backdrop-blur rounded-xl shadow-lg border border-red-200">
             <span className="text-lg">🖐️</span>
-            <span className="text-sm font-heading font-bold text-white tracking-[0.2em]">DETECTED</span>
+            <span className="text-sm font-heading font-bold text-red-600">Hand Detected</span>
           </div>
         </div>
       )}
       {isHandCamera && !handDetected && hasFrame && (
-        <div className="absolute bottom-2.5 right-2.5 px-3 py-1 bg-emerald-900/70 rounded text-sm font-heading tracking-[0.2em] text-emerald-300 border border-emerald-500/20">
-          ✓ SAFE
+        <div className="absolute bottom-2.5 right-2.5 px-2.5 py-1 bg-white/90 backdrop-blur-sm rounded-lg text-xs font-heading"
+          style={{ color: '#4caf7d' }}>
+          ✓ Safe
         </div>
       )}
+    </div>
+  )
+}
+
+/* ================================================================
+   Debug Overlay Panel
+   ================================================================ */
+const DebugOverlayPanel: FC<{
+  overlays: Record<string, string | null>
+  overlayOpacity: number
+  onUpload: (camName: string, url: string) => void
+  onRemove: (camName: string) => void
+  onOpacityChange: (val: number) => void
+  cameras: string[]
+}> = ({ overlays, overlayOpacity, onUpload, onRemove, onOpacityChange, cameras }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [targetCam, setTargetCam] = useState<string>('')
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !targetCam) return
+    const url = URL.createObjectURL(file)
+    onUpload(targetCam, url)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const triggerUpload = (camName: string) => {
+    setTargetCam(camName)
+    setTimeout(() => fileInputRef.current?.click(), 0)
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5 px-3 py-3 rounded-xl"
+      style={{ background: '#faf8f6', border: '1px solid #e0dbd4' }}>
+      <div className="flex items-center gap-2">
+        <IconLayers size={14} className="text-[#8b7ec8]" />
+        <span className="text-xs font-heading tracking-wide" style={{ color: '#8b7ec8' }}>Debug Overlay</span>
+      </div>
+
+      {/* Per-camera upload/remove buttons */}
+      <div className="flex flex-col gap-1.5">
+        {cameras.map(cam => (
+          <div key={cam} className="flex items-center gap-2">
+            <span className="text-[11px] font-heading flex-1 truncate" style={{ color: '#6b6560' }}>{cam}</span>
+            {overlays[cam] ? (
+              <button onClick={() => onRemove(cam)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-heading transition-colors"
+                style={{ background: '#fdeaea', border: '1px solid #f0b8b8', color: '#d94f4f' }}>
+                <IconTrash size={10} />
+                <span>Remove</span>
+              </button>
+            ) : (
+              <button onClick={() => triggerUpload(cam)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-heading transition-colors"
+                style={{ background: '#f0edf8', border: '1px solid #d4cde8', color: '#8b7ec8' }}>
+                <IconUpload size={10} />
+                <span>Upload</span>
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Opacity slider */}
+      {Object.values(overlays).some(v => v) && (
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-[10px] font-heading" style={{ color: '#9e978f' }}>Opacity</span>
+          <input type="range" min="0" max="100" value={Math.round(overlayOpacity * 100)}
+            onChange={e => onOpacityChange(Number(e.target.value) / 100)}
+            className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+            style={{ accentColor: '#8b7ec8' }} />
+          <span className="text-[10px] font-heading w-8 text-right" style={{ color: '#8b7ec8' }}>
+            {Math.round(overlayOpacity * 100)}%
+          </span>
+        </div>
+      )}
+
+      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
     </div>
   )
 }
@@ -173,18 +276,56 @@ const CameraFeed: FC<{ name: string; active: boolean; handDetected?: boolean; is
    ================================================================ */
 const SidebarCameraFeeds: FC<{ active: boolean; handDetected: boolean; handDetectEnabled: boolean }> = ({ active, handDetected, handDetectEnabled }) => {
   const [cameras, setCameras] = useState<string[]>([])
+  const [overlays, setOverlays] = useState<Record<string, string | null>>({})
+  const [overlayOpacity, setOverlayOpacity] = useState(0.2)
+  const [showDebug, setShowDebug] = useState(false)
+
   useEffect(() => { fetch('/api/cameras').then(r => r.json()).then(d => setCameras(d.cameras || [])).catch(() => {}) }, [])
+
+  const handleUpload = useCallback((cam: string, url: string) => {
+    setOverlays(prev => ({ ...prev, [cam]: url }))
+  }, [])
+  const handleRemove = useCallback((cam: string) => {
+    setOverlays(prev => {
+      const old = prev[cam]
+      if (old) URL.revokeObjectURL(old)
+      return { ...prev, [cam]: null }
+    })
+  }, [])
+
   if (cameras.length === 0) return null
   return (
     <div className="flex flex-col gap-3 w-full">
       <div className="flex items-center gap-2">
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#d2ff0015] to-transparent" />
-        <span className="text-sm font-heading tracking-[0.4em] text-[#d2ff00]/40">FEEDS</span>
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#d2ff0015] to-transparent" />
+        <div className="h-px flex-1" style={{ background: '#e0dbd4' }} />
+        <span className="text-xs font-heading tracking-widest" style={{ color: '#9e978f' }}>Cameras</span>
+        <div className="h-px flex-1" style={{ background: '#e0dbd4' }} />
+        <button onClick={() => setShowDebug(p => !p)}
+          className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-heading transition-colors"
+          style={{
+            background: showDebug ? '#f0edf8' : '#faf8f6',
+            border: `1px solid ${showDebug ? '#d4cde8' : '#e0dbd4'}`,
+            color: showDebug ? '#8b7ec8' : '#9e978f',
+          }}>
+          <IconLayers size={10} />
+          <span>Debug</span>
+        </button>
       </div>
+      {showDebug && (
+        <DebugOverlayPanel
+          overlays={overlays}
+          overlayOpacity={overlayOpacity}
+          onUpload={handleUpload}
+          onRemove={handleRemove}
+          onOpacityChange={setOverlayOpacity}
+          cameras={cameras}
+        />
+      )}
       {cameras.map(name => (
         <CameraFeed key={name} name={name} active={active} handDetected={handDetected}
-          isHandCamera={handDetectEnabled && name === 'front'} />
+          isHandCamera={handDetectEnabled && name === 'front'}
+          overlayUrl={overlays[name] || null}
+          overlayOpacity={overlayOpacity} />
       ))}
     </div>
   )
@@ -192,14 +333,56 @@ const SidebarCameraFeeds: FC<{ active: boolean; handDetected: boolean; handDetec
 
 const MobileCameraFeeds: FC<{ active: boolean; handDetected: boolean; handDetectEnabled: boolean }> = ({ active, handDetected, handDetectEnabled }) => {
   const [cameras, setCameras] = useState<string[]>([])
+  const [overlays, setOverlays] = useState<Record<string, string | null>>({})
+  const [overlayOpacity, setOverlayOpacity] = useState(0.2)
+  const [showDebug, setShowDebug] = useState(false)
+
   useEffect(() => { fetch('/api/cameras').then(r => r.json()).then(d => setCameras(d.cameras || [])).catch(() => {}) }, [])
+
+  const handleUpload = useCallback((cam: string, url: string) => {
+    setOverlays(prev => ({ ...prev, [cam]: url }))
+  }, [])
+  const handleRemove = useCallback((cam: string) => {
+    setOverlays(prev => {
+      const old = prev[cam]
+      if (old) URL.revokeObjectURL(old)
+      return { ...prev, [cam]: null }
+    })
+  }, [])
+
   if (cameras.length === 0) return null
   return (
-    <div className="w-full mb-2">
-      <div className={`grid gap-2 ${cameras.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+    <div className="w-full mb-3">
+      <div className="flex items-center gap-2 mb-2">
+        <button onClick={() => setShowDebug(p => !p)}
+          className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-heading transition-colors"
+          style={{
+            background: showDebug ? '#f0edf8' : '#faf8f6',
+            border: `1px solid ${showDebug ? '#d4cde8' : '#e0dbd4'}`,
+            color: showDebug ? '#8b7ec8' : '#9e978f',
+          }}>
+          <IconLayers size={10} />
+          <span>Debug Overlay</span>
+        </button>
+      </div>
+      {showDebug && (
+        <div className="mb-2">
+          <DebugOverlayPanel
+            overlays={overlays}
+            overlayOpacity={overlayOpacity}
+            onUpload={handleUpload}
+            onRemove={handleRemove}
+            onOpacityChange={setOverlayOpacity}
+            cameras={cameras}
+          />
+        </div>
+      )}
+      <div className={`grid gap-3 ${cameras.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
         {cameras.map(name => (
           <CameraFeed key={name} name={name} active={active} handDetected={handDetected}
-            isHandCamera={handDetectEnabled && name === 'front'} />
+            isHandCamera={handDetectEnabled && name === 'front'}
+            overlayUrl={overlays[name] || null}
+            overlayOpacity={overlayOpacity} />
         ))}
       </div>
     </div>
@@ -231,7 +414,7 @@ function App() {
   const [toasts, setToasts]     = useState<Toast[]>([])
   const [handDetect, setHandDetect]       = useState(true)
   const [handDetected, setHandDetected]   = useState(false)
-  const [autoStopped, setAutoStopped]     = useState(false)
+  const [, setAutoStopped]     = useState(false)
   const [, setPipelineStage]     = useState('')
   const [, setPipelineStageIdx] = useState(0)
   const [, setPipelineTotal]     = useState(0)
@@ -262,13 +445,25 @@ function App() {
     } catch { toast(`${label}: network error`, 'error') }
   }, [toast])
 
-  const doStart   = useCallback(() => api('/api/start',   'Planning & starting...'),  [api])
-  const doStop    = useCallback(() => api('/api/stop',   'Emergency stop'),     [api])
-  const doHome    = useCallback(() => api('/api/reset',  'Going to home'),      [api])
+  const doStart   = useCallback(() => api('/api/start',   'Planning and starting...'),  [api])
+  const doStop    = useCallback(() => api('/api/stop',   'Emergency Stop'),     [api])
+  const doHome    = useCallback(() => api('/api/reset',  'Return to Home'),      [api])
   const doResume  = useCallback(() => api('/api/resume', 'Resumed'),            [api])
-  const doRestart = useCallback(() => api('/api/restart','Replanning & restarting...'), [api])
-  const doQuit    = useCallback(() => api('/api/quit',   'Quit & re-warming'),  [api])
-  const doToggleHand = useCallback(() => api('/api/hand-detect', handDetect ? 'Hand safety OFF' : 'Hand safety ON'), [api, handDetect])
+  const doRestart = useCallback(() => api('/api/restart','Replanning and starting...'), [api])
+  const doQuit    = useCallback(() => api('/api/quit',   'Quit and re-warmup'),  [api])
+  const doToggleHand = useCallback(() => api('/api/hand-detect', handDetect ? 'Hand safety disabled' : 'Hand safety enabled'), [api, handDetect])
+  const doRunStage = useCallback(async (stageName: string) => {
+    try {
+      const r = await fetch('/api/run-stage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: stageName }),
+      })
+      const data = await r.json()
+      if (r.ok && data.status === 'ok') toast(`Running ${stageName}`, 'success')
+      else toast(data.message || `Failed to run ${stageName}`, 'error')
+    } catch { toast(`Run ${stageName}: network error`, 'error') }
+  }, [toast])
 
   useEffect(() => {
     let backoff = 1000
@@ -317,94 +512,92 @@ function App() {
      Render
      ================================================================ */
   return (
-    <div className="w-full h-screen overflow-hidden bg-[#0a0a0a] text-white flex flex-col select-none bg-grid noise-overlay scanlines">
-      <div className="fixed inset-0 bg-spotlight pointer-events-none" />
-      <FloatingParticles />
+    <div className="w-full h-screen overflow-hidden flex flex-col select-none"
+      style={{ background: '#f5f2ee', color: '#2d2a26' }}>
 
       {/* ═══ HEADER ═══ */}
-      <header className={`relative z-10 w-full px-6 lg:px-10 h-14 flex items-center justify-between
-                          border-b border-white/[0.04] backdrop-blur-md flex-shrink-0
-                          transition-all duration-500 ${mounted ? 'opacity-100' : 'opacity-0 -translate-y-2'}`}>
+      <header className={`relative z-10 w-full px-5 lg:px-8 h-14 flex items-center justify-between
+                          flex-shrink-0 bg-white border-b
+                          transition-all duration-500 ${mounted ? 'opacity-100' : 'opacity-0 -translate-y-2'}`}
+        style={{ borderColor: '#e0dbd4' }}>
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-md bg-[#d2ff00] flex items-center justify-center">
-            <span className="text-lg font-black text-black leading-none">R</span>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ background: '#e8793a' }}>
+            <span className="text-sm font-bold text-white leading-none">R</span>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="font-heading text-xl tracking-[0.2em] text-white/90">RETABLE</span>
-            <span className="font-heading text-xl tracking-[0.2em] text-[#d2ff00]">BOT</span>
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-heading text-lg" style={{ color: '#2d2a26' }}>Retable</span>
+            <span className="font-heading text-lg" style={{ color: '#e8793a' }}>Bot</span>
           </div>
         </div>
-        <div className={`flex items-center gap-2 text-sm font-heading tracking-[0.2em] ${
-          connected ? 'text-emerald-400' : 'text-red-400'
-        }`}>
-          <span className={`h-2.5 w-2.5 rounded-full ${connected ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-red-400'}`} />
-          {connected ? 'ONLINE' : reconnecting ? 'RECONNECTING' : 'OFFLINE'}
+
+        {/* Status badge */}
+        <div className="flex items-center gap-3">
+          <div className="px-3 py-1 rounded-full text-xs font-heading"
+            style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}>
+            {meta.label}
+          </div>
+          <div className={`flex items-center gap-1.5 text-xs font-heading ${
+            connected ? '' : ''
+          }`} style={{ color: connected ? '#4caf7d' : '#d94f4f' }}>
+            <span className="h-2 w-2 rounded-full"
+              style={{ background: connected ? '#4caf7d' : '#d94f4f' }} />
+            {connected ? 'Online' : reconnecting ? 'Reconnecting' : 'Offline'}
+          </div>
         </div>
       </header>
 
       {/* ═══ MAIN ═══ */}
-      <main className={`relative z-10 flex-1 flex flex-col lg:flex-row w-full px-6 lg:px-10 py-4 gap-5 lg:gap-8
+      <main className={`relative z-10 flex-1 flex flex-col lg:flex-row w-full px-5 lg:px-8 py-4 gap-4 lg:gap-6
                         overflow-hidden min-h-0
                         transition-all duration-500 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
 
         {/* ═══ LEFT COLUMN ═══ */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 lg:mx-0 w-full overflow-y-auto custom-scroll">
 
-          {/* ─── HERO STATE ─── */}
-          <div className="relative mb-4 lg:mb-6 flex-shrink-0">
-            <div className="relative overflow-hidden">
-              <h2 className={`font-heading leading-[0.85] tracking-[0.04em] transition-colors duration-500 ${meta.textGlow}`}
-                style={{
-                  color: meta.color,
-                  fontSize: 'clamp(4.5rem, 10vw, 9rem)',
-                  textShadow: `0 0 40px ${meta.color}40, 0 0 80px ${meta.color}15`,
-                }}>
-                {autoStopped && isPaused ? 'HAND\nSTOP' : meta.label}
-              </h2>
-              <div className="h-1 mt-2 rounded-full overflow-hidden" style={{ background: `${meta.color}15` }}>
-                <div className={`h-full rounded-full transition-all duration-1000 ${
-                  (isRunning || isWarmup) ? 'animate-shimmer-bar' : ''
-                }`} style={{
-                  width: (isRunning || isWarmup) ? '100%' : '40%',
-                  background: `linear-gradient(90deg, transparent, ${meta.color}, transparent)`,
-                }} />
-              </div>
+          {/* ─── STATUS MESSAGE ─── */}
+          {(isWarmup || state === 'ERROR') && message && (
+            <div className="mb-3 px-4 py-3 rounded-xl flex-shrink-0"
+              style={{ background: meta.bg, border: `1px solid ${meta.border}` }}>
+              <p className="text-sm font-mono leading-relaxed" style={{ color: meta.color }}>{message}</p>
             </div>
-            {(isWarmup || state === 'ERROR') && message && (
-              <p className="text-base text-slate-500 mt-3 font-mono leading-relaxed">{message}</p>
-            )}
-          </div>
+          )}
 
           {/* ─── PIPELINE (integrated with LLM plan) ─── */}
           {(stagesInfo.length > 0 || llmPlanning) && (
             <div className="mb-4 flex-shrink-0">
               <div className="flex items-center gap-3 mb-3">
-                <span className="text-sm font-heading tracking-[0.3em] text-slate-600 flex-shrink-0">PIPELINE</span>
-                <div className="flex-1" />
+                <span className="text-xs font-heading tracking-wide flex-shrink-0" style={{ color: '#9e978f' }}>Execution Pipeline</span>
+                <div className="flex-1 h-px" style={{ background: '#e0dbd4' }} />
                 {llmPlanning && (
                   <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-smooth-spin" />
-                    <span className="text-xs font-heading tracking-[0.2em] text-violet-400/60">🧠 ANALYZING…</span>
+                    <div className="w-3.5 h-3.5 border-2 border-[#8b7ec8] border-t-transparent rounded-full animate-smooth-spin" />
+                    <span className="text-xs font-heading" style={{ color: '#8b7ec8' }}>🧠 Analyzing…</span>
                   </div>
                 )}
                 {!llmPlanning && pipelineStatus && (
-                  <span className={`text-sm font-heading tracking-[0.2em] px-2.5 py-1 rounded border flex-shrink-0 ${
-                    pipelineStatus === 'inference' ? 'border-blue-500/30 text-blue-400' :
-                    pipelineStatus === 'waypoints' ? 'border-violet-500/30 text-violet-400' :
-                    'border-cyan-500/30 text-cyan-400'
-                  }`}>
+                  <span className="text-xs font-heading px-2.5 py-1 rounded-full"
+                    style={{
+                      background: pipelineStatus === 'inference' ? '#e3f0fc' :
+                                  pipelineStatus === 'waypoints' ? '#f0edf8' : '#e8f5ee',
+                      color: pipelineStatus === 'inference' ? '#5b8fd9' :
+                             pipelineStatus === 'waypoints' ? '#8b7ec8' : '#3b8f7e',
+                      border: `1px solid ${pipelineStatus === 'inference' ? '#b3d4f0' :
+                               pipelineStatus === 'waypoints' ? '#d4cde8' : '#c3e6d1'}`,
+                    }}>
                     {pipelineStatus.toUpperCase()}
                   </span>
                 )}
               </div>
 
               {llmPlanError && (
-                <div className="px-3 py-2 rounded bg-red-500/10 border border-red-500/20 mb-3">
-                  <span className="text-xs font-mono text-red-400">{llmPlanError}</span>
+                <div className="px-3 py-2.5 rounded-xl mb-3"
+                  style={{ background: '#fdeaea', border: '1px solid #f0b8b8' }}>
+                  <span className="text-xs font-mono" style={{ color: '#d94f4f' }}>{llmPlanError}</span>
                 </div>
               )}
 
-              {/* Stage cards — only visible objects (not_found filtered by backend) */}
+              {/* Stage cards */}
               <div className="flex flex-col gap-2">
                 {stagesInfo.map((stage) => {
                   const isActive = stage.exec_status === 'active'
@@ -412,43 +605,66 @@ function App() {
                   const llmDone = stage.llm_status === 'done'
                   const isDone = execDone || llmDone
                   const icon = OBJECT_ICONS[stage.name] || '📦'
+                  const canRunSingle = !isWarmup && !isActive
 
                   return (
                     <div key={stage.name}
-                      className={`relative flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-300 ${
-                        isDone
-                          ? 'border-emerald-500/25 bg-emerald-500/[0.04]'
-                          : isActive
-                            ? 'border-[#00f0ff]/40 bg-[#00f0ff]/[0.04]'
-                            : 'border-white/[0.06] bg-white/[0.02]'
-                      }`}>
+                      className="relative flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300"
+                      style={{
+                        background: isDone ? '#e8f5ee' : isActive ? '#e3f0fc' : '#ffffff',
+                        border: `1px solid ${isDone ? '#c3e6d1' : isActive ? '#b3d4f0' : '#e0dbd4'}`,
+                        boxShadow: isActive ? '0 2px 8px rgba(59,143,126,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+                      }}>
                       <span className="text-xl flex-shrink-0">{icon}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm font-heading tracking-[0.1em] ${
-                            isDone ? 'text-emerald-400' :
-                            isActive ? 'text-[#00f0ff]' :
-                            'text-slate-500'
-                          }`}>{stage.name}</span>
+                          <span className="text-sm font-heading" style={{
+                            color: isDone ? '#2e7d4f' : isActive ? '#2b6cb0' : '#6b6560'
+                          }}>{stage.name}</span>
+
                           {isDone && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-heading tracking-wider">
-                              ✓ DONE
+                            <span className="badge-done text-[10px] px-2 py-0.5 rounded-full font-heading">
+                              ✓ Done
                             </span>
                           )}
                           {isActive && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#00f0ff]/20 text-[#00f0ff] font-heading tracking-wider animate-pulse">
-                              ▶ RUNNING
+                            <span className="badge-running text-[10px] px-2 py-0.5 rounded-full font-heading animate-gentle-pulse">
+                              ▶ Running
                             </span>
                           )}
                           {!isDone && !isActive && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-heading tracking-wider">
-                              ⏳ TODO
+                            <span className="badge-todo text-[10px] px-2 py-0.5 rounded-full font-heading">
+                              ⏳ Pending
                             </span>
                           )}
                         </div>
                       </div>
-                      <div className="flex-shrink-0 w-8 text-right">
-                        {isDone && <span className="text-emerald-400 text-lg">✓</span>}
+                      <div className="flex-shrink-0">
+                        {canRunSingle && (
+                          <button onClick={() => doRunStage(stage.name)}
+                            title={`Run ${stage.name} alone`}
+                            className="px-2.5 py-1.5 rounded-lg transition-all duration-200 group"
+                            style={{
+                              background: '#faf8f6',
+                              border: '1px solid #e0dbd4',
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.background = '#fef3e2'
+                              e.currentTarget.style.borderColor = '#f5ddb5'
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.background = '#faf8f6'
+                              e.currentTarget.style.borderColor = '#e0dbd4'
+                            }}>
+                            <span className="flex items-center gap-1.5">
+                              <IconPlay size={11} className="text-[#9e978f] group-hover:text-[#e8793a] transition-colors" />
+                              <span className="text-[10px] font-heading text-[#9e978f] group-hover:text-[#e8793a] transition-colors">Run</span>
+                            </span>
+                          </button>
+                        )}
+                        {isDone && !canRunSingle && (
+                          <span style={{ color: '#4caf7d' }} className="text-lg">✓</span>
+                        )}
                       </div>
                     </div>
                   )
@@ -459,36 +675,83 @@ function App() {
               {llmPlanning && stagesInfo.length === 0 && (
                 <div className="flex items-center justify-center py-6">
                   <div className="flex items-center gap-3">
-                    <div className="w-5 h-5 border-2 border-violet-400 border-t-transparent rounded-full animate-smooth-spin" />
-                    <span className="text-sm font-heading tracking-[0.15em] text-slate-500">Analyzing scene…</span>
+                    <div className="w-5 h-5 border-2 border-[#8b7ec8] border-t-transparent rounded-full animate-smooth-spin" />
+                    <span className="text-sm font-heading" style={{ color: '#9e978f' }}>Analyzing scene…</span>
                   </div>
                 </div>
               )}
             </div>
           )}
 
+          {/* ─── QUICK RUN — test mode ─── */}
+          <div className="mb-4 flex-shrink-0">
+            <div className="flex items-center gap-2 mb-2.5">
+              <IconZap size={12} className="text-[#e8793a]" />
+              <span className="text-xs font-heading tracking-wide" style={{ color: '#9e978f' }}>Quick Run</span>
+              <div className="flex-1 h-px" style={{ background: '#e0dbd4' }} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {['Lemon', 'Tissue', 'Cup', 'Cloth'].map(name => {
+                const icon = OBJECT_ICONS[name] || '📦'
+                const isCurrentlyRunning = stagesInfo.some(s => s.name === name && s.exec_status === 'active')
+                return (
+                  <button key={name} onClick={() => doRunStage(name)}
+                    disabled={isCurrentlyRunning}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-heading
+                               transition-all duration-200"
+                    style={{
+                      background: isCurrentlyRunning ? '#e3f0fc' : '#ffffff',
+                      border: `1px solid ${isCurrentlyRunning ? '#b3d4f0' : '#e0dbd4'}`,
+                      color: isCurrentlyRunning ? '#2b6cb0' : '#6b6560',
+                      cursor: isCurrentlyRunning ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                    }}
+                    onMouseEnter={e => {
+                      if (!isCurrentlyRunning) {
+                        e.currentTarget.style.background = '#fef3e2'
+                        e.currentTarget.style.borderColor = '#f5ddb5'
+                        e.currentTarget.style.color = '#e8793a'
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!isCurrentlyRunning) {
+                        e.currentTarget.style.background = '#ffffff'
+                        e.currentTarget.style.borderColor = '#e0dbd4'
+                        e.currentTarget.style.color = '#6b6560'
+                      }
+                    }}>
+                    <span>{icon}</span>
+                    <span>{name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* ─── HAND SAFETY ─── */}
-          <div className={`flex items-center justify-between py-3 px-4 rounded-lg mb-4 flex-shrink-0 transition-all duration-300 border ${
-            handDetected
-              ? 'border-red-500/50 bg-red-500/[0.06] glow-red'
-              : handDetect
-                ? 'border-emerald-500/15 bg-emerald-500/[0.03]'
-                : 'border-white/[0.04] bg-white/[0.01]'
-          }`}>
-            <div className="flex items-center gap-2">
-              <IconHand size={22} color={handDetected ? '#ef4444' : handDetect ? '#10b981' : '#555'} />
-              <span className={`text-base font-heading tracking-[0.15em] ${
-                handDetected ? 'text-red-400' : handDetect ? 'text-emerald-400/80' : 'text-slate-600'
-              }`}>
-                {handDetected ? 'HAND DETECTED — STOPPED' : handDetect ? 'HAND SAFETY ACTIVE' : 'HAND SAFETY OFF'}
+          <div className="flex items-center justify-between py-3 px-4 rounded-xl mb-4 flex-shrink-0 transition-all duration-300"
+            style={{
+              background: handDetected ? '#fdeaea' : handDetect ? '#e8f5ee' : '#ffffff',
+              border: `1px solid ${handDetected ? '#f0b8b8' : handDetect ? '#c3e6d1' : '#e0dbd4'}`,
+            }}>
+            <div className="flex items-center gap-2.5">
+              <IconHand size={20} color={handDetected ? '#d94f4f' : handDetect ? '#4caf7d' : '#9e978f'} />
+              <span className="text-sm font-heading" style={{
+                color: handDetected ? '#d94f4f' : handDetect ? '#3b8f7e' : '#9e978f'
+              }}>
+                {handDetected ? 'Hand detected — stopped' : handDetect ? 'Hand safety enabled' : 'Hand safety disabled'}
               </span>
               {handDetected && <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" />}
             </div>
             <button onClick={doToggleHand} disabled={isWarmup}
-              className={`relative w-12 h-6 rounded-full transition-all duration-300 flex-shrink-0
-                         ${isWarmup ? 'opacity-30 cursor-not-allowed' : handDetect ? 'bg-emerald-500' : 'bg-slate-700'}`}>
-              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-300
-                              ${handDetect ? 'translate-x-[26px]' : 'translate-x-0.5'}`} />
+              className="relative w-11 h-6 rounded-full transition-all duration-300 flex-shrink-0"
+              style={{
+                background: isWarmup ? '#e0dbd4' : handDetect ? '#4caf7d' : '#c8c1b8',
+                opacity: isWarmup ? 0.4 : 1,
+                cursor: isWarmup ? 'not-allowed' : 'pointer',
+              }}>
+              <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-300"
+                style={{ transform: handDetect ? 'translateX(22px)' : 'translateX(2px)' }} />
             </button>
           </div>
 
@@ -498,98 +761,101 @@ function App() {
           </div>
 
           {/* ═══════════════════════════════════════════════════════
-             ACTION PANEL — single morphing hero button
+             ACTION PANEL
              ═══════════════════════════════════════════════════════ */}
           <div className="flex-1 flex flex-col min-h-0">
 
-            {/* ── Morphing Hero Button — changes based on state ── */}
-            <div className="mb-4 flex-shrink-0">
+            {/* ── Hero Button — changes based on state ── */}
+            <div className="mb-3 flex-shrink-0">
               {isWarmup ? (
                 /* Warmup: loading state with progress */
-                <div className="flex flex-col gap-3 py-6 lg:py-8 px-6 rounded-xl border border-[#00f0ff]/10 bg-[#00f0ff]/[0.02] neon-border-animated">
-                  <div className="flex items-center justify-center gap-4">
-                    <div className="w-6 h-6 border-2 border-[#00f0ff] border-t-transparent rounded-full animate-smooth-spin" />
-                    <span className="text-lg font-heading tracking-[0.15em] text-slate-500">LOADING MODEL…</span>
-                    <span className="text-lg font-heading tracking-wider text-[#00f0ff]/60">{progress}%</span>
+                <div className="flex flex-col gap-3 py-5 lg:py-6 px-5 rounded-xl neon-border-animated"
+                  style={{ background: '#ffffff', border: '1px solid #b3d4f0' }}>
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="w-5 h-5 border-2 border-[#5b8fd9] border-t-transparent rounded-full animate-smooth-spin" />
+                    <span className="text-base font-heading" style={{ color: '#6b6560' }}>Loading model…</span>
+                    <span className="text-base font-heading" style={{ color: '#5b8fd9' }}>{progress}%</span>
                   </div>
-                  <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden">
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: '#eae6e0' }}>
                     <div
                       className="h-full rounded-full transition-all duration-700 ease-out progress-glow relative"
                       style={{
                         width: `${progress}%`,
-                        background: 'linear-gradient(90deg, #00f0ffcc, #00f0ff)',
-                        boxShadow: '0 0 12px rgba(0,240,255,0.3)',
+                        background: 'linear-gradient(90deg, #7db8e0, #5b8fd9)',
                       }}
                     >
-                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent animate-shimmer" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
                     </div>
                   </div>
                 </div>
               ) : canStart ? (
                 /* Ready/Done/Error: START */
                 <button onClick={doStart}
-                  className="group w-full py-6 lg:py-8 rounded-xl font-heading font-black text-2xl lg:text-3xl tracking-[0.2em]
-                             bg-[#d2ff00] text-black hover:bg-[#e5ff4d]
-                             shadow-[0_0_40px_rgba(210,255,0,0.2)] hover:shadow-[0_0_60px_rgba(210,255,0,0.4)]
-                             transition-all duration-200 btn-press relative overflow-hidden">
+                  className="group w-full py-5 lg:py-6 rounded-xl font-heading font-bold text-xl lg:text-2xl tracking-wide
+                             text-white
+                             transition-all duration-200 btn-press relative overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(135deg, #e8793a, #f59e5e)',
+                    boxShadow: '0 4px 20px rgba(232,121,58,0.2)',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 28px rgba(232,121,58,0.35)' }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(232,121,58,0.2)' }}>
                   <span className="relative z-10 flex items-center justify-center gap-3">
-                    <IconPlay size={28} />
-                    START
+                    <IconPlay size={24} />
+                    Start
                   </span>
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                 </button>
               ) : isRunning ? (
                 /* Running: STOP */
                 <button onClick={doStop}
-                  className="group w-full py-6 lg:py-8 rounded-xl font-heading font-black text-2xl lg:text-3xl tracking-[0.25em]
-                             bg-gradient-to-b from-red-500 to-red-700 text-white
-                             border-2 border-red-400/40 hover:border-red-300/60
-                             estop-active
-                             shadow-[0_0_50px_rgba(239,68,68,0.3),0_0_100px_rgba(239,68,68,0.1)]
-                             hover:shadow-[0_0_70px_rgba(239,68,68,0.45),0_0_120px_rgba(239,68,68,0.15)]
-                             hover:from-red-400 hover:to-red-600
-                             active:from-red-600 active:to-red-800
-                             transition-all duration-200 btn-press relative overflow-hidden select-none">
+                  className="group w-full py-5 lg:py-6 rounded-xl font-heading font-bold text-xl lg:text-2xl tracking-wide
+                             text-white estop-active
+                             transition-all duration-200 btn-press relative overflow-hidden select-none"
+                  style={{
+                    background: 'linear-gradient(135deg, #d94f4f, #e06b6b)',
+                    boxShadow: '0 4px 20px rgba(217,79,79,0.25)',
+                  }}>
                   <span className="relative z-10 flex items-center justify-center gap-3">
-                    <IconStop size={32} />
-                    STOP
+                    <IconStop size={28} />
+                    Emergency Stop
                   </span>
                 </button>
               ) : isPaused ? (
                 /* Paused/Homed: RESUME */
                 <button onClick={doResume}
-                  className="group w-full py-6 lg:py-8 rounded-xl font-heading font-black text-2xl lg:text-3xl tracking-[0.2em]
-                             bg-blue-500 text-white hover:bg-blue-400
-                             shadow-[0_0_40px_rgba(59,130,246,0.25)] hover:shadow-[0_0_60px_rgba(59,130,246,0.4)]
-                             transition-all duration-200 btn-press relative overflow-hidden">
+                  className="group w-full py-5 lg:py-6 rounded-xl font-heading font-bold text-xl lg:text-2xl tracking-wide
+                             text-white
+                             transition-all duration-200 btn-press relative overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(135deg, #5b8fd9, #7db8e0)',
+                    boxShadow: '0 4px 20px rgba(91,143,217,0.2)',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 28px rgba(91,143,217,0.35)' }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(91,143,217,0.2)' }}>
                   <span className="relative z-10 flex items-center justify-center gap-3">
-                    <IconPlay size={28} className="text-white" />
-                    RESUME
+                    <IconPlay size={24} className="text-white" />
+                    Resume
                   </span>
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                 </button>
               ) : null}
             </div>
 
             {/* ── Secondary Actions ── */}
             {!isWarmup && (
-              <div className="flex gap-3 mb-4">
+              <div className="flex gap-3 mb-3">
                 {/* Home */}
                 <button onClick={doHome}
-                  className="action-tile group flex-1"
-                  style={{ '--tile-color': '#d2ff00' } as React.CSSProperties}>
-                  <IconHome size={28} className="text-[#d2ff00]/60 group-hover:text-[#d2ff00] transition-colors" />
-                  <span className="text-sm font-heading tracking-[0.2em] text-[#d2ff00]/50 group-hover:text-[#d2ff00]/90 transition-colors">HOME</span>
+                  className="action-tile group flex-1">
+                  <IconHome size={24} className="transition-colors text-[#9e978f] group-hover:text-[#e8793a]" />
+                  <span className="text-xs font-heading text-[#9e978f] group-hover:text-[#e8793a] transition-colors">Return to Home</span>
                 </button>
                 {/* Restart (with LLM replan) */}
                 <button onClick={doRestart}
-                  className="action-tile group flex-1"
-                  style={{ '--tile-color': '#a78bfa' } as React.CSSProperties}>
-                  <svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    className="text-violet-400/60 group-hover:text-violet-400 transition-colors">
-                    <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                  </svg>
-                  <span className="text-sm font-heading tracking-[0.2em] text-violet-400/50 group-hover:text-violet-400/90 transition-colors">RESTART</span>
+                  className="action-tile group flex-1">
+                  <IconRefresh size={24} className="transition-colors text-[#9e978f] group-hover:text-[#e8793a]" />
+                  <span className="text-xs font-heading text-[#9e978f] group-hover:text-[#e8793a] transition-colors">Replan</span>
                 </button>
               </div>
             )}
@@ -597,11 +863,14 @@ function App() {
             {/* Quit — subtle, only when process active */}
             {hasProcess && (
               <button onClick={doQuit}
-                className="w-full py-2 text-sm font-heading tracking-[0.25em] text-slate-700 hover:text-slate-500
-                           transition-colors duration-200 mb-2 flex-shrink-0">
+                className="w-full py-2 text-xs font-heading tracking-wide
+                           transition-colors duration-200 mb-2 flex-shrink-0"
+                style={{ color: '#9e978f' }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#6b6560' }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#9e978f' }}>
                 <span className="flex items-center justify-center gap-2">
-                  <IconX size={14} />
-                  QUIT SESSION
+                  <IconX size={13} />
+                  Quit Session
                 </span>
               </button>
             )}
@@ -610,7 +879,7 @@ function App() {
         </div>{/* end left column */}
 
         {/* ═══ RIGHT COLUMN ═══ */}
-        <div className={`hidden lg:flex lg:w-[400px] xl:w-[460px] 2xl:w-[520px] flex-shrink-0 min-w-0 flex-col gap-3
+        <div className={`hidden lg:flex lg:w-[380px] xl:w-[440px] 2xl:w-[500px] flex-shrink-0 min-w-0 flex-col gap-3
                         overflow-y-auto transition-all duration-500 delay-150
                         ${mounted ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-6'}`}>
           <SidebarCameraFeeds active={!isWarmup && state !== 'ERROR'} handDetected={handDetected} handDetectEnabled={handDetect} />
@@ -622,11 +891,12 @@ function App() {
       <div className="fixed top-3 left-1/2 -translate-x-1/2 flex flex-col gap-2 pointer-events-none z-50 w-[90vw] max-w-sm">
         {toasts.map(t => (
           <div key={t.id}
-            className={`px-5 py-3 rounded-lg text-sm font-heading tracking-[0.15em] text-center
-                        shadow-xl backdrop-blur-md border animate-fadeInUp
-              ${t.type === 'success' ? 'bg-emerald-600/90 border-emerald-400/20 text-white' :
-                t.type === 'error'   ? 'bg-red-600/90 border-red-400/20 text-white' :
-                                       'bg-blue-600/90 border-blue-400/20 text-white'}`}>
+            className="px-5 py-3 rounded-xl text-sm font-heading text-center
+                        shadow-lg animate-fadeInUp text-white"
+            style={{
+              background: t.type === 'success' ? '#4caf7d' :
+                          t.type === 'error'   ? '#d94f4f' : '#5b8fd9',
+            }}>
             {t.message}
           </div>
         ))}
