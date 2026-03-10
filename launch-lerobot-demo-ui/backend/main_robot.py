@@ -17,6 +17,7 @@ import asyncio
 import csv
 import json
 import os
+import re
 import signal
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -289,7 +290,6 @@ def parse_output(line: str) -> dict:
         return {"_signal": "PIPELINE_COMPLETE"}
 
     # ── Pipeline stage signals ──
-    import re
 
     # STAGE_LOADING:StageName
     m = re.match(r"STAGE_LOADING:(.+)", raw)
