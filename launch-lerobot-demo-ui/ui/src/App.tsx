@@ -648,14 +648,15 @@ function App() {
               ) : canStart ? (
                 /* Ready/Done/Error: START */
                 <button onClick={doStart}
+                  disabled={llmPlanning}
                   className="group w-full py-5 lg:py-6 rounded-xl font-heading font-bold text-xl lg:text-2xl tracking-wide
                              text-white
-                             transition-all duration-200 btn-press relative overflow-hidden"
+                             transition-all duration-200 btn-press relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: 'linear-gradient(135deg, #e8793a, #f59e5e)',
                     boxShadow: '0 4px 20px rgba(232,121,58,0.2)',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 28px rgba(232,121,58,0.35)' }}
+                  onMouseEnter={e => { if (!llmPlanning) e.currentTarget.style.boxShadow = '0 6px 28px rgba(232,121,58,0.35)' }}
                   onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(232,121,58,0.2)' }}>
                   <span className="relative z-10 flex items-center justify-center gap-3">
                     <IconPlay size={24} />
@@ -704,13 +705,15 @@ function App() {
               <div className="flex gap-3 mb-3">
                 {/* Home */}
                 <button onClick={doHome}
-                  className="action-tile group flex-1">
+                  disabled={state === 'HOMED' || llmPlanning}
+                  className="action-tile group flex-1 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">
                   <IconHome size={24} className="transition-colors text-[#9e978f] group-hover:text-[#e8793a]" />
                   <span className="text-xs font-heading text-[#9e978f] group-hover:text-[#e8793a] transition-colors">Return to Home</span>
                 </button>
                 {/* Restart (with LLM replan) */}
                 <button onClick={doRestart}
-                  className="action-tile group flex-1">
+                  disabled={llmPlanning || isRunning}
+                  className="action-tile group flex-1 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">
                   <IconRefresh size={24} className="transition-colors text-[#9e978f] group-hover:text-[#e8793a]" />
                   <span className="text-xs font-heading text-[#9e978f] group-hover:text-[#e8793a] transition-colors">Replan</span>
                 </button>
@@ -720,10 +723,11 @@ function App() {
             {/* Quit — subtle, only when process active */}
             {hasProcess && (
               <button onClick={doQuit}
+                disabled={llmPlanning}
                 className="w-full py-2 text-xs font-heading tracking-wide
-                           transition-colors duration-200 mb-2 flex-shrink-0"
+                           transition-colors duration-200 mb-2 flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
                 style={{ color: '#9e978f' }}
-                onMouseEnter={e => { e.currentTarget.style.color = '#6b6560' }}
+                onMouseEnter={e => { if (!llmPlanning) e.currentTarget.style.color = '#6b6560' }}
                 onMouseLeave={e => { e.currentTarget.style.color = '#9e978f' }}>
                 <span className="flex items-center justify-center gap-2">
                   <IconX size={13} />
