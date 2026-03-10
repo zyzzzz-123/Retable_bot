@@ -78,7 +78,7 @@ CLOTH_JSON = os.path.join(LEROBOT_DIR, "cloth.json")
 PIPELINE_STAGES = [
     {
         "name": "Lemon",
-        "model": "FrankYuzhe/lemon_box_0226_merged_200_0227_141701",
+        "model": "FrankYuzhe/act_lemon_box_0226_merged_160_ckpt_040000",
         "trigger_joint": "shoulder_pan",
         "trigger_op": "lt",
         "trigger_value": -25.0,
@@ -114,7 +114,7 @@ PIPELINE_STAGES = [
         "model": "FrankYuzhe/act_cloth_0301_merged_80_0301_200931",
         "trigger_joint": "shoulder_pan",
         "trigger_op": "gt",            # greater than -25 → 接管
-        "trigger_value": -10.0,
+        "trigger_value": 0.0,
         "waypoint_csv": os.path.join(LEROBOT_DIR, "cloth.csv"),
         "waypoint_duration": 0.8,
         "waypoint_timings": [

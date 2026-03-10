@@ -219,6 +219,8 @@ class RobotState:
             "pipeline_stages_info": self.pipeline_stages_info,
             "llm_planning": self.llm_planning,
             "llm_plan_error": self.llm_plan_error,
+            "llm_plan": self.llm_plan,
+            "llm_stages_to_run": self.llm_stages_to_run,
         }
     
     def log_event(self, event: str, details: dict = None):

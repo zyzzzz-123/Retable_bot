@@ -242,11 +242,12 @@ def check_control_file(control_file, events, hand_detector=None):
         logger.info(f"PLAN_RESTART received: run stages {stage_names}")
         print(f"PLAN_RECEIVED:{','.join(stage_names)}", flush=True)
     elif cmd.startswith("PLAN_START:"):
-        # Combined PLAN + START in a single command (avoids race condition)
+        # Combined PLAN + START — triggers restart so new plan takes effect
         stage_names = [s.strip() for s in cmd[11:].split(",") if s.strip()]
         events["_plan_stages"] = stage_names
-        events["emergency_stop"] = False
-        events["auto_stopped"] = False
+        events["emergency_stop"] = True
+        events["exit_early"] = True
+        events["_restart"] = True
         logger.info(f"PLAN_START received: run stages {stage_names}")
         print(f"PLAN_RECEIVED:{','.join(stage_names)}", flush=True)
     elif cmd == "RETRY":

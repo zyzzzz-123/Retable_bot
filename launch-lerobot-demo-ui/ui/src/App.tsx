@@ -12,6 +12,11 @@ interface PipelineStageInfo {
   exec_status: 'pending' | 'active' | 'done' | 'skipped' | 'stopped'  // execution state
 }
 
+interface LLMPlanEntry {
+  status: 'done' | 'todo' | 'not_found'
+  reason: string
+}
+
 interface StatusMessage {
   state: RobotState
   step?: string
@@ -27,6 +32,8 @@ interface StatusMessage {
   pipeline_stages_info?: PipelineStageInfo[]
   llm_planning?: boolean
   llm_plan_error?: string
+  llm_plan?: Record<string, LLMPlanEntry> | null
+  llm_stages_to_run?: string[]
 }
 
 interface Toast {
@@ -316,6 +323,10 @@ function App() {
   const [stagesInfo, setStagesInfo]     = useState<PipelineStageInfo[]>([])
   const [llmPlanning, setLlmPlanning]   = useState(false)
   const [llmPlanError, setLlmPlanError] = useState('')
+  // Debug: LLM plan state — uncomment when debug panel is re-enabled
+  // const [llmPlan, setLlmPlan]           = useState<Record<string, LLMPlanEntry> | null>(null)
+  // const [llmStagesToRun, setLlmStagesToRun] = useState<string[]>([])
+  // const [debugOpen, setDebugOpen]       = useState(false)
   const [mounted, setMounted] = useState(false)
 
   const wsRef     = useRef<WebSocket | null>(null)
@@ -371,6 +382,9 @@ function App() {
           if (d.pipeline_stages_info !== undefined) setStagesInfo(d.pipeline_stages_info)
           if (d.llm_planning !== undefined)   setLlmPlanning(d.llm_planning)
           if (d.llm_plan_error !== undefined) setLlmPlanError(d.llm_plan_error)
+          // Debug: uncomment when debug panel is re-enabled
+          // if (d.llm_plan !== undefined)       setLlmPlan(d.llm_plan)
+          // if (d.llm_stages_to_run !== undefined) setLlmStagesToRun(d.llm_stages_to_run)
         } catch { /* ignore */ }
       }
       ws.onclose = () => {
@@ -547,6 +561,91 @@ function App() {
             </div>
           )}
 
+
+          {/* ─── DEBUG: LLM Plan JSON (temporary) — commented out ─── */}
+          {/* {(llmPlan || llmPlanning) && (
+            <div className="mb-4 flex-shrink-0 rounded-xl overflow-hidden"
+              style={{ border: '1px dashed #c8a2c8', background: '#fdf8ff' }}>
+              <button onClick={() => setDebugOpen(p => !p)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-left"
+                style={{ cursor: 'pointer' }}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs">🐛</span>
+                  <span className="text-xs font-heading tracking-wide" style={{ color: '#8b7ec8' }}>
+                    Debug: LLM Plan Result
+                  </span>
+                  {llmPlan && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                      style={{ background: '#f0edf8', color: '#8b7ec8' }}>
+                      {Object.keys(llmPlan).length} objects
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs" style={{ color: '#8b7ec8', transform: debugOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                  ▼
+                </span>
+              </button>
+              {debugOpen && (
+                <div className="px-4 pb-3">
+                  {llmStagesToRun.length > 0 && (
+                    <div className="mb-2 flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-heading" style={{ color: '#9e978f' }}>Stages to run:</span>
+                      {llmStagesToRun.map(s => (
+                        <span key={s} className="text-[10px] px-2 py-0.5 rounded-full font-heading"
+                          style={{ background: '#e3f0fc', color: '#5b8fd9', border: '1px solid #b3d4f0' }}>
+                          {OBJECT_ICONS[s] || '📦'} {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {llmStagesToRun.length === 0 && llmPlan && (
+                    <div className="mb-2">
+                      <span className="text-[10px] font-heading" style={{ color: '#4caf7d' }}>✅ No stages to run — all done or not found</span>
+                    </div>
+                  )}
+                  {llmPlan && (
+                    <div className="flex flex-col gap-1.5">
+                      {Object.entries(llmPlan).map(([name, entry]) => {
+                        const statusColor = entry.status === 'todo' ? '#e8793a' :
+                                            entry.status === 'done' ? '#4caf7d' : '#9e978f'
+                        const statusIcon = entry.status === 'todo' ? '⏳' :
+                                           entry.status === 'done' ? '✅' : '❌'
+                        return (
+                          <div key={name} className="flex items-start gap-2 px-3 py-2 rounded-lg"
+                            style={{ background: '#fff', border: '1px solid #e0dbd4' }}>
+                            <span className="text-sm flex-shrink-0">{OBJECT_ICONS[name] || '📦'}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-heading font-bold" style={{ color: '#2d2a26' }}>{name}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold"
+                                  style={{ color: statusColor, background: statusColor + '15' }}>
+                                  {statusIcon} {entry.status}
+                                </span>
+                              </div>
+                              {entry.reason && (
+                                <p className="text-[11px] font-mono mt-0.5 leading-relaxed" style={{ color: '#6b6560' }}>
+                                  {entry.reason}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <details className="mt-2">
+                    <summary className="text-[10px] font-heading cursor-pointer select-none" style={{ color: '#9e978f' }}>
+                      Raw JSON
+                    </summary>
+                    <pre className="mt-1 p-2 rounded-lg text-[10px] font-mono leading-relaxed overflow-x-auto"
+                      style={{ background: '#f5f2ee', color: '#6b6560', border: '1px solid #e0dbd4', maxHeight: '200px' }}>
+                      {JSON.stringify(llmPlan, null, 2)}
+                    </pre>
+                  </details>
+                </div>
+              )}
+            </div>
+          )} */}
 
           {/* ─── HAND SAFETY ─── */}
           <div className="flex items-center justify-between py-3 px-4 rounded-xl mb-4 flex-shrink-0 transition-all duration-300"
