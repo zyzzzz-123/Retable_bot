@@ -85,11 +85,6 @@ const IconRefresh: FC<{ size?: number; className?: string }> = ({ size = 18, cla
     <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
   </svg>
 )
-const IconZap: FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-  </svg>
-)
 
 /* ================================================================
    SVG Icons — Debug overlay
@@ -582,50 +577,6 @@ function App() {
             </div>
           )}
 
-          {/* ─── QUICK RUN — test mode ─── */}
-          <div className="mb-4 flex-shrink-0">
-            <div className="flex items-center gap-2 mb-2.5">
-              <IconZap size={12} className="text-[#e8793a]" />
-              <span className="text-xs font-heading tracking-wide" style={{ color: '#9e978f' }}>Quick Run</span>
-              <div className="flex-1 h-px" style={{ background: '#e0dbd4' }} />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {['Lemon', 'Tissue', 'Cup', 'Cloth'].map(name => {
-                const icon = OBJECT_ICONS[name] || '📦'
-                const isCurrentlyRunning = stagesInfo.some(s => s.name === name && s.exec_status === 'active')
-                return (
-                  <button key={name} onClick={() => doRunStage(name)}
-                    disabled={isCurrentlyRunning}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-heading
-                               transition-all duration-200"
-                    style={{
-                      background: isCurrentlyRunning ? '#e3f0fc' : '#ffffff',
-                      border: `1px solid ${isCurrentlyRunning ? '#b3d4f0' : '#e0dbd4'}`,
-                      color: isCurrentlyRunning ? '#2b6cb0' : '#6b6560',
-                      cursor: isCurrentlyRunning ? 'not-allowed' : 'pointer',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                    }}
-                    onMouseEnter={e => {
-                      if (!isCurrentlyRunning) {
-                        e.currentTarget.style.background = '#fef3e2'
-                        e.currentTarget.style.borderColor = '#f5ddb5'
-                        e.currentTarget.style.color = '#e8793a'
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!isCurrentlyRunning) {
-                        e.currentTarget.style.background = '#ffffff'
-                        e.currentTarget.style.borderColor = '#e0dbd4'
-                        e.currentTarget.style.color = '#6b6560'
-                      }
-                    }}>
-                    <span>{icon}</span>
-                    <span>{name}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
 
           {/* ─── HAND SAFETY ─── */}
           <div className="flex items-center justify-between py-3 px-4 rounded-xl mb-4 flex-shrink-0 transition-all duration-300"

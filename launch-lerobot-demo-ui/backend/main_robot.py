@@ -472,17 +472,11 @@ async def spawn_warmup_process():
                 robot.reset_to_ready()
                 robot.log_event("WARMUP_COMPLETE")
                 await broadcast_state()
-                # Auto-trigger LLM planning + start
-                if LLM_PLANNER_ENABLED:
-                    asyncio.create_task(_auto_plan_and_start())
                 continue
             if sig == "READY_FOR_START":
                 robot.reset_to_ready()
                 robot.log_event("READY_FOR_START")
                 await broadcast_state()
-                # Auto-trigger LLM planning + start
-                if LLM_PLANNER_ENABLED:
-                    asyncio.create_task(_auto_plan_and_start())
                 continue
             if sig == "INFERENCE_DONE":
                 robot.state = "DONE"
