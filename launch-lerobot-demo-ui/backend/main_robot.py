@@ -182,6 +182,20 @@ class RobotState:
             if s["name"] == stage_name:
                 s["exec_status"] = "active"
 
+    def mark_active_stage_stopped(self):
+        """Mark the currently active stage as stopped (e.g. emergency stop)."""
+        for s in self.pipeline_stages_info:
+            if s["exec_status"] == "active":
+                s["exec_status"] = "stopped"
+                break
+
+    def mark_stopped_stage_active(self):
+        """Resume: mark stopped stage back to active."""
+        for s in self.pipeline_stages_info:
+            if s["exec_status"] == "stopped":
+                s["exec_status"] = "active"
+                break
+
     def mark_stage_done(self, stage_name: str):
         """Mark a stage as done (completed execution)."""
         for s in self.pipeline_stages_info:
@@ -754,6 +768,7 @@ async def api_stop():
     robot.state = "PAUSED"
     robot.step = "E-Stop"
     robot.message = "Emergency stop — holding position"
+    robot.mark_active_stage_stopped()
     robot.log_event("CMD_ESTOP")
     await broadcast_state()
     return {"status": "ok", "message": "Emergency stop sent"}
@@ -782,6 +797,7 @@ async def api_resume():
     robot.state = "WORKING"
     robot.step = "Resuming"
     robot.message = "Resuming inference..."
+    robot.mark_stopped_stage_active()
     robot.log_event("CMD_RESUME")
     await broadcast_state()
     return {"status": "ok", "message": "Resume sent"}

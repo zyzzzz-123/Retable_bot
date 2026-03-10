@@ -9,7 +9,7 @@ type RobotState = 'WARMUP' | 'READY' | 'WORKING' | 'PAUSED' | 'HOMED' | 'DONE' |
 interface PipelineStageInfo {
   name: string
   llm_status: 'done' | 'todo' | 'not_found' | ''   // from LLM planner
-  exec_status: 'pending' | 'active' | 'done' | 'skipped'  // execution state
+  exec_status: 'pending' | 'active' | 'done' | 'skipped' | 'stopped'  // execution state
 }
 
 interface StatusMessage {
@@ -495,25 +495,26 @@ function App() {
               <div className="flex flex-col gap-2">
                 {stagesInfo.map((stage) => {
                   const isActive = stage.exec_status === 'active'
+                  const isStopped = stage.exec_status === 'stopped'
                   const execDone = stage.exec_status === 'done'
                   const llmDone = stage.llm_status === 'done'
                   const isDone = execDone || llmDone
                   const icon = OBJECT_ICONS[stage.name] || '📦'
-                  const canRunSingle = !isWarmup && !isActive
+                  const canRunSingle = !isWarmup && !isActive && !isStopped
 
                   return (
                     <div key={stage.name}
                       className="relative flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300"
                       style={{
-                        background: isDone ? '#e8f5ee' : isActive ? '#e3f0fc' : '#ffffff',
-                        border: `1px solid ${isDone ? '#c3e6d1' : isActive ? '#b3d4f0' : '#e0dbd4'}`,
-                        boxShadow: isActive ? '0 2px 8px rgba(59,143,126,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+                        background: isDone ? '#e8f5ee' : isStopped ? '#fef8e8' : isActive ? '#e3f0fc' : '#ffffff',
+                        border: `1px solid ${isDone ? '#c3e6d1' : isStopped ? '#f0dfa0' : isActive ? '#b3d4f0' : '#e0dbd4'}`,
+                        boxShadow: isActive ? '0 2px 8px rgba(59,143,126,0.08)' : isStopped ? '0 2px 8px rgba(217,160,58,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
                       }}>
                       <span className="text-xl flex-shrink-0">{icon}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-heading" style={{
-                            color: isDone ? '#2e7d4f' : isActive ? '#2b6cb0' : '#6b6560'
+                            color: isDone ? '#2e7d4f' : isStopped ? '#d9a03a' : isActive ? '#2b6cb0' : '#6b6560'
                           }}>{stage.name}</span>
 
                           {isDone && (
@@ -521,12 +522,18 @@ function App() {
                               ✓ Done
                             </span>
                           )}
+                          {isStopped && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-heading"
+                              style={{ background: '#fef8e8', color: '#d9a03a', border: '1px solid #f0dfa0' }}>
+                              ⏸ Stopped
+                            </span>
+                          )}
                           {isActive && (
                             <span className="badge-running text-[10px] px-2 py-0.5 rounded-full font-heading animate-gentle-pulse">
                               ▶ Running
                             </span>
                           )}
-                          {!isDone && !isActive && (
+                          {!isDone && !isActive && !isStopped && (
                             <span className="badge-todo text-[10px] px-2 py-0.5 rounded-full font-heading">
                               ⏳ Pending
                             </span>
