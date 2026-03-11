@@ -80,8 +80,9 @@ A **React + FastAPI web UI** provides a dashboard to start, stop, and monitor th
 |-----------|---------|
 | Robot Arm | SO-101 (6-DOF, Feetech STS3215 servos) |
 | Cameras | 2× USB cameras (front view + wrist-mounted) |
-| Compute | Ubuntu PC with NVIDIA GPU (CUDA) |
-| Connection | Robot via `/dev/ttyACM0`, cameras via `/dev/video4`, `/dev/video8` |
+| Compute | Ubuntu PC · NVIDIA RTX 4090 Laptop GPU · 16 GB VRAM · CUDA 13.0 (recommended min) |
+| Robot Connection | USB serial — typically `/dev/ttyACM0` or `/dev/ttyACM1` (run `lerobot-find-port` to identify yours) |
+| Camera Connection | USB video devices — typically `/dev/video*` even numbers (run `lerobot-find-cameras opencv` to identify yours) |
 
 ---
 
