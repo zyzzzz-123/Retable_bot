@@ -26,7 +26,7 @@ Built on top of [HuggingFace LeRobot](https://github.com/huggingface/lerobot)
 
 ## Overview
 
-**ReTable Bot** is an end-to-end autonomous table-clearing system. A SO-101 robot arm uses four separately-trained [ACT (Action Chunking with Transformers)](https://huggingface.co/docs/lerobot/act) policies — one per object class — orchestrated in a pipeline that:
+**ReTable Bot** is an end-to-end autonomous table-clearing system. A SO-101 robot arm uses four separately-trained [ACT (Action Chunking with Transformers)](https://huggingface.co/docs/lerobot/act) policies, one per object class, orchestrated in a pipeline that:
 
 1. **Plans** the clearing order (optionally via an LLM vision planner using Gemini)
 2. **Picks** each object using the corresponding ACT model
@@ -165,7 +165,7 @@ lerobot/                          # Root (forked from huggingface/lerobot)
 | Requirement | Details |
 |---|---|
 | **OS** | Ubuntu Linux |
-| **GPU** | CUDA-capable NVIDIA GPU |
+| **GPU** | NVIDIA GPU with CUDA support and ≥16 GB VRAM (tested on RTX 4090 Laptop, 16 GB VRAM, CUDA 13.0) |
 | **Conda env** | Python 3.10+ |
 | **Node.js** | 18+ with npm (for the web UI frontend) |
 | **Robot** | SO-101 arm connected via USB serial (`/dev/ttyACM*`) |
