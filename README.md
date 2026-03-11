@@ -15,7 +15,6 @@ Built on top of [HuggingFace LeRobot](https://github.com/huggingface/lerobot)
 - [How to Run](#how-to-run)
   - [Option A: Web UI (Recommended)](#option-a-web-ui-recommended)
   - [Option B: Command-Line Pipeline](#option-b-command-line-pipeline)
-  - [Option C: Single-Model Scripts](#option-c-single-model-scripts)
 - [What to Expect](#what-to-expect)
 - [Custom Components](#custom-components)
 - [Trained Models](#trained-models)
@@ -165,7 +164,7 @@ lerobot/                          # Root (forked from huggingface/lerobot)
 | Requirement | Details |
 |---|---|
 | **OS** | Ubuntu Linux |
-| **GPU** | NVIDIA GPU with CUDA support and ≥16 GB VRAM (tested on RTX 4090 Laptop, 16 GB VRAM, CUDA 13.0) |
+| **GPU** | NVIDIA GPU with CUDA support (tested on RTX 4090 Laptop, 16 GB VRAM, CUDA 13.0) |
 | **Conda env** | Python 3.10+ |
 | **Node.js** | 18+ with npm (for the web UI frontend) |
 | **Robot** | SO-101 arm connected via USB serial (`/dev/ttyACM*`) |
@@ -175,7 +174,7 @@ lerobot/                          # Root (forked from huggingface/lerobot)
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/<your-org>/retable-bot.git
+git clone https://github.com/zyzzzz-123/Retable_bot.git
 cd retable-bot
 
 # 2. Create and activate the conda environment
@@ -302,21 +301,6 @@ python eval_pipeline.py \
 | `r` | Go to home position (smooth interpolation) |
 | `→` (Right arrow) | Skip current episode |
 | `Esc` | Quit |
-
-### Option C: Single-Model Scripts
-
-For testing a single ACT policy:
-
-```bash
-# Minimal single-model inference
-python run_act_simple.py
-
-# Single model with full safety features
-python eval_act_safe.py \
-  --model FrankYuzhe/act_lemon_box_0226_merged_160_ckpt_040000 \
-  --robot-port /dev/ttyACM0 \
-  --cameras "front:/dev/video4,wrist:/dev/video8"
-```
 
 ### Utility Scripts
 
