@@ -345,8 +345,8 @@ For each stage:
 
 ### Safety
 - **Hand detection**: If a human hand is detected in the camera frame, the arm automatically stops and waits
-- **E-stop**: Press Spacebar (or the UI button) to immediately disable all servo torques
-- **Go-to-home**: Press `r` to smoothly return the arm to its resting position
+- **E-stop**: Press Spacebar (or the UI Emergency Stop button) to immediately disable all servo torques
+- **Go-to-home**: Press `r` (or the UI Return to Home button) to smoothly return the arm to its resting position
 
 ### Output
 - Live camera frames are streamed to `/tmp/lerobot_frames/` as JPEG files
@@ -370,8 +370,6 @@ This project adds the following on top of the base [HuggingFace LeRobot](https:/
 | Utility scripts | `disable_torque.py`, `save_position.py`, `read_joints.py`, etc. |
 | Waypoint system | JSON/CSV waypoint files for each object's pick-and-place trajectory |
 
-For a detailed changelog of all modifications to the base LeRobot library, see [`CUSTOM_CHANGES.md`](CUSTOM_CHANGES.md).
-
 ---
 
 ## Trained Models
@@ -381,7 +379,7 @@ All models are hosted on HuggingFace Hub under the `FrankYuzhe` namespace:
 | Model | Task | Training Data |
 |-------|------|---------------|
 | `FrankYuzhe/act_lemon_box_0226_merged_160_ckpt_040000` | Pick up lemon | 160 demonstrations |
-| `FrankYuzhe/act_tissue_box_0226_merged_80_0226_221249` | Pick up tissue box | 80 demonstrations |
+| `FrankYuzhe/act_tissue_box_0226_merged_80_0226_221249` | Pick up tissue | 80 demonstrations |
 | `FrankYuzhe/act_cup_box_0301_merged_80` | Pick up cup | 80 demonstrations |
 | `FrankYuzhe/act_cloth_0301_merged_80_0301_200931` | Pick up cloth | 80 demonstrations |
 
