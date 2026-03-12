@@ -19,6 +19,7 @@ Built on top of [HuggingFace LeRobot](https://github.com/huggingface/lerobot)
 - [Custom Components](#custom-components)
 - [Trained Models](#trained-models)
 - [Troubleshooting](#troubleshooting)
+- [User Manual (PDF)](#user-manual-pdf)
 - [Acknowledgments](#acknowledgments)
 
 ---
@@ -412,6 +413,12 @@ Models were trained using the ACT architecture via LeRobot's training pipeline w
 ### Model warmup fails
 - Ensure CUDA is available: `python -c "import torch; print(torch.cuda.is_available())"`
 - Models are auto-downloaded from HuggingFace on first run — ensure internet access
+
+---
+
+## User Manual (PDF)
+
+📄 **[ReTable_Bot_User_Manual.pdf](ReTable_Bot_User_Manual.pdf)**
 
 ---
 
